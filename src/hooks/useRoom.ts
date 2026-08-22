@@ -33,6 +33,9 @@ export function useRoom(roomId: string | null) {
       setPlayers(p);
       setLoading(false);
       setError(null);
+    }, (message) => {
+      setLoading(false);
+      setError(message);
     });
     return () => unsub();
   }, [roomId]);

@@ -16,6 +16,7 @@ export default function Lobby({ room, players, currentNickname, onStart, onLeave
   const settings = room.settings;
   const min = minPlayers(settings);
   const canStart = players.length >= min && players.length <= settings.playerCount;
+  const [copied, setCopied] = useState(false);
 
   function patch(nextPatch: Partial<RoomSettings>) {
     const next = { ...settings, ...nextPatch };

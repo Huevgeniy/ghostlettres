@@ -152,15 +152,15 @@ export async function joinRoom(code: string, nickname: string, existingPlayerId?
   return { room: { ...room, player_count: players.length }, player: asPlayer(player as Player), players };
 }
 
-export function subscribeToRoom(roomId: string, onChange: (room: Room, players: Player[]) => void): () => void {
+export function subscribeToRoom(roomId: string, onChange: (room: Room, players: Player[]) => void, onError?: (message: string) => void): () => void {
   let alive = true;
   const pull = async () => {
     if (!alive) return;
     try {
       const [room, players] = await Promise.all([fetchRoom(roomId), fetchPlayers(roomId)]);
       if (alive) onChange(room, players);
-    } catch {
-      /* ignore transient */
+    } catch (e) {
+      if (alive) onError?.(e instanceof Error ? e.message : 'Ошибка загрузки комнаты');
     }
   };
 
