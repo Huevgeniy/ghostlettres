@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Eye, Megaphone, RefreshCw, Send, SkipForward, Trophy, Vote, X } from 'lucide-react';
+import { Eye, LogOut, Megaphone, RefreshCw, Send, Settings2, SkipForward, Trophy, Vote, X } from 'lucide-react';
 import {
   type CategoryKey,
   type ClueCard,
@@ -18,7 +18,7 @@ type Props = {
   room: Room;
   players: Player[];
   me: Player;
-  onPlaceClue: (category: CategoryKey) => void;
+  onPlaceClue: (category: CategoryKey, note?: string) => void;
   onTrueChoose: (choices: Partial<Record<CategoryKey, string>>, commit?: boolean) => void;
   onGhostOpening: (card: ClueCard | null) => void;
   onSubmitClue: (card: ClueCard) => void;
@@ -31,6 +31,7 @@ type Props = {
   onTimerExpire: () => void;
   onRestart: () => void;
   onExit: () => void;
+  onToLobby: () => void;
 };
 
 export default function GameTable(props: Props) {
@@ -44,14 +45,20 @@ export default function GameTable(props: Props) {
   const isGhost = me.role === 'ghost';
   const isKiller = me.role === 'killer';
   const seesTruth = isGhost || isKiller || me.role === 'accomplice' || me.role === 'expert';
+  const voteCats = (room.state.voteScope && room.state.voteScope.length
+    ? cats.filter((c) => room.state.voteScope!.includes(c.key))
+    : cats) as typeof cats;
+  const needKiller = room.settings.hasKiller && !(room.state.voteScopeKiller === false);
+  const suspects = players.filter((p) => p.id !== me.id);
   const round = room.state.round ?? 0;
   const totalRounds = room.settings.rounds;
-  const [zoom, setZoom] = useState<ClueCard | null>(null);
+  const [zoom, setZoom] = useState<{ card: ClueCard; note?: string } | null>(null);
   const [selectedHand, setSelectedHand] = useState<string | null>(null);
   const [ghostKeep, setGhostKeep] = useState<string[]>([]);
   const [trueSel, setTrueSel] = useState<Partial<Record<CategoryKey, string>>>(truth);
   const [votePicks, setVotePicks] = useState<Partial<Record<CategoryKey, string>>>({});
   const [voteKiller, setVoteKiller] = useState<string | null>(null);
+  const [noteInput, setNoteInput] = useState('');
   const remaining = useCountdown(room.state.deadlineAt, props.onTimerExpire);
 
   const grouped = useMemo(() => {
@@ -87,7 +94,8 @@ export default function GameTable(props: Props) {
       {zoom && (
         <div className="zoom-layer" onClick={() => setZoom(null)}>
           <div onClick={(e) => e.stopPropagation()} className="zoom-card">
-            <ClueFace card={zoom} className="clue-zoom" />
+            <ClueFace card={zoom.card} className="clue-zoom" />
+            {zoom.note && <div className="zoom-note"><p className="eyebrow">Ассоциация</p><p>{zoom.note}</p></div>}
             <button className="zoom-close" onClick={() => setZoom(null)}><X size={20} /></button>
           </div>
         </div>
@@ -117,6 +125,12 @@ export default function GameTable(props: Props) {
                 {ROLE_INFO[me.role].title}
               </p>
             )}
+            <div className="mt-2 flex items-center justify-end gap-2">
+              {me.nickname === room.host_name && (
+                <button onClick={props.onToLobby} className="btn-ghost"><Settings2 size={16} /> В лобби</button>
+              )}
+              <button onClick={props.onExit} className="btn-ghost"><LogOut size={16} /> Выйти</button>
+            </div>
           </div>
         </header>
 
@@ -143,7 +157,7 @@ export default function GameTable(props: Props) {
               ) : (
                 <div className="flex flex-wrap gap-2">
                   {hints.map((c) => (
-                    <ClueFace key={c.id} card={c} className="clue-hint" highlighted onClick={() => setZoom(c)} />
+                    <ClueFace key={c.id} card={c} className="clue-hint" highlighted onClick={() => setZoom({ card: c })} />
                   ))}
                 </div>
               )}
@@ -168,7 +182,7 @@ export default function GameTable(props: Props) {
               {cats.map((cat) => (
                 <div key={cat.key} className="flex gap-3">
                   <div className="cat-badge">{cat.title}</div>
-                  <div className="grid flex-1 grid-cols-4 gap-2 sm:grid-cols-5">
+                  <div className="grid flex-1 grid-cols-4 gap-2">
                     {Array.from({ length: per }).map((_, i) => {
                       const clue = grouped[cat.key]?.[i];
                       if (!clue) {
@@ -176,7 +190,7 @@ export default function GameTable(props: Props) {
                           <button
                             key={`${cat.key}-empty-${i}`}
                             disabled={!laying}
-                            onClick={() => laying && props.onPlaceClue(cat.key)}
+                            onClick={() => laying && props.onPlaceClue(cat.key, noteInput)}
                             className="clue-empty flex items-center justify-center text-white/25"
                           >
                             {laying ? '+' : ''}
@@ -199,10 +213,12 @@ export default function GameTable(props: Props) {
                               return;
                             }
                             if (room.phase === 'voting' && !isGhost && !myBallot?.locked) {
-                              setVotePicks((s) => ({ ...s, [cat.key]: clue.id }));
+                              if (voteCats.some((c) => c.key === cat.key)) {
+                                setVotePicks((s) => ({ ...s, [cat.key]: clue.id }));
+                              }
                               return;
                             }
-                            setZoom(clue.card);
+                            setZoom({ card: clue.card, note: clue.note });
                           }}
                         />
                       );
@@ -214,6 +230,24 @@ export default function GameTable(props: Props) {
           </section>
 
           <aside className="space-y-4">
+            <div className="panel max-h-64 overflow-auto p-4">
+              <p className="eyebrow">Прошлые карты</p>
+              {(room.state.discard?.length ?? 0) + (room.state.vanished?.length ?? 0) === 0 ? (
+                <p className="mt-2 text-xs text-white/40">Пока пусто.</p>
+              ) : (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {[...(room.state.discard ?? []), ...(room.state.vanished ?? [])].map((c) => (
+                    <ClueFace key={c.id} card={c} className="clue-hint" onClick={() => setZoom({ card: c })} />
+                  ))}
+                </div>
+              )}
+              {(room.state.discard?.length ?? 0) > 0 && (
+                <p className="mt-2 text-[.65rem] text-white/35">Сброс: {room.state.discard?.length}</p>
+              )}
+              {(room.state.vanished?.length ?? 0) > 0 && (
+                <p className="text-[.65rem] text-white/35">Исчезло: {room.state.vanished?.length}</p>
+              )}
+            </div>
             <div className="panel max-h-64 overflow-auto p-4">
               <p className="eyebrow">Журнал</p>
               <ul className="mt-2 space-y-1.5 text-xs text-white/55">
@@ -239,13 +273,24 @@ export default function GameTable(props: Props) {
         {room.phase === 'setup' && room.state.layingCard && (
           <div className="panel mt-5 p-4">
             <p className="font-semibold text-cyan">Текущая улика для стола</p>
-            <div className="mt-3 flex items-center gap-4">
-              <ClueFace card={room.state.layingCard} className="clue-hand" onClick={() => setZoom(room.state.layingCard!)} />
-              <p className="text-sm text-white/60">
-                {room.state.layingPlayerId === me.id
-                  ? 'Выберите категорию на поле, куда положить эту карту, и коротко озвучьте гипотезу.'
-                  : `Ход: ${players.find((p) => p.id === room.state.layingPlayerId)?.nickname ?? '…'}`}
-              </p>
+            <div className="mt-3 flex flex-wrap items-center gap-4">
+              <ClueFace card={room.state.layingCard} className="clue-hand" onClick={() => setZoom({ card: room.state.layingCard! })} />
+              <div className="min-w-[16rem] flex-1">
+                {room.state.layingPlayerId === me.id ? (
+                  <>
+                    <p className="text-sm text-white/60">Выберите категорию на поле, куда положить эту карту. Можно добавить короткую ассоциацию (увидит любой, кто откроет карту).</p>
+                    <input
+                      className="field mt-2"
+                      value={noteInput}
+                      maxLength={60}
+                      placeholder="Короткая ассоциация (необязательно)"
+                      onChange={(e) => setNoteInput(e.target.value)}
+                    />
+                  </>
+                ) : (
+                  <p className="text-sm text-white/60">Ход: {players.find((p) => p.id === room.state.layingPlayerId)?.nickname ?? '…'}</p>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -381,10 +426,10 @@ export default function GameTable(props: Props) {
               <p className="text-sm text-white/60">Голос принят. Ждём остальных ({Object.values(room.state.ballots ?? {}).filter((b) => b.locked).length}/{players.filter((p) => p.role !== 'ghost').length}).</p>
             ) : (
               <>
-                <p className="font-semibold text-gold">Выберите истинные улики на поле{room.settings.hasKiller ? ' и кого арестовать' : ''}, затем нажмите «Проголосовать». До этого голоса скрыты.</p>
-                {room.settings.hasKiller && (
+                <p className="font-semibold text-gold">Выберите истинные улики на поле{needKiller ? ' и кого арестовать' : ''}, затем нажмите «Проголосовать». До этого голоса скрыты.{voteCats.length > 0 && voteCats.length < cats.length ? ' Переголосование только по неопределившимся категориям.' : ''}</p>
+                {needKiller && (
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {players.map((p) => (
+                    {suspects.map((p) => (
                       <button key={p.id} onClick={() => setVoteKiller(p.id)} className={`chip ${voteKiller === p.id ? 'chip-active' : ''}`}>
                         {p.nickname}{p.role === 'ghost' ? ' (призрак / нет убийцы)' : ''}
                       </button>
@@ -393,7 +438,7 @@ export default function GameTable(props: Props) {
                 )}
                 <button
                   className="btn-primary mt-4"
-                  disabled={cats.some((c) => !votePicks[c.key]) || (room.settings.hasKiller && !voteKiller)}
+                  disabled={voteCats.some((c) => !votePicks[c.key]) || (needKiller && !voteKiller)}
                   onClick={() => props.onLockVote(votePicks, voteKiller)}
                 >
                   <Vote size={16} /> Проголосовать

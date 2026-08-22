@@ -9,13 +9,17 @@ type Props = {
   onStart: () => void;
   onLeave: () => void;
   onSettings: (settings: RoomSettings) => void;
+  onReady: (ready: boolean) => void;
 };
 
-export default function Lobby({ room, players, currentNickname, onStart, onLeave, onSettings }: Props) {
+export default function Lobby({ room, players, currentNickname, onStart, onLeave, onSettings, onReady }: Props) {
   const isHost = room.host_name === currentNickname;
   const settings = room.settings;
   const min = minPlayers(settings);
-  const canStart = players.length >= min && players.length <= settings.playerCount;
+  const me = players.find((p) => p.nickname === currentNickname);
+  const iAmReady = me?.is_ready ?? false;
+  const allReady = players.length >= min && players.every((p) => p.is_ready);
+  const canStart = players.length >= min && players.length <= settings.playerCount && allReady;
   const [copied, setCopied] = useState(false);
 
   function patch(nextPatch: Partial<RoomSettings>) {
@@ -67,6 +71,9 @@ export default function Lobby({ room, players, currentNickname, onStart, onLeave
                     {player ? (
                       <>
                         <span className="font-semibold">{player.nickname}</span>
+                        <span className={`ml-2 text-xs ${player.is_ready ? 'text-emerald-300' : 'text-white/35'}`}>
+                          {player.is_ready ? '● готов' : '○ не готов'}
+                        </span>
                         {player.nickname === room.host_name && <span className="ml-auto badge-gold">Хозяин</span>}
                       </>
                     ) : <span className="text-white/30">Ожидаем игрока…</span>}
@@ -78,10 +85,23 @@ export default function Lobby({ room, players, currentNickname, onStart, onLeave
               <HelpCircle className="mr-2 inline text-cyan" size={16} />
               {settings.hasKiller ? `Соревновательный режим: минимум ${min} игрока.` : `Кооператив без убийцы: минимум ${min} игрока.`} Обсуждение за столом, на сайте — колода, руки, таймеры и голосование.
             </div>
-            {isHost ? (
-              <button onClick={onStart} disabled={!canStart} className="btn-primary mt-6"><Play size={18} /> Начать партию</button>
-            ) : (
-              <p className="mt-6 text-center text-sm text-white/45">Ждём, когда хозяин начнёт расследование…</p>
+            <div className="mt-6 flex items-center gap-3">
+              <button
+                onClick={() => onReady(!iAmReady)}
+                className={`btn-secondary flex-1 ${iAmReady ? 'text-emerald-200' : ''}`}
+              >
+                {iAmReady ? '✓ Готов' : 'Готов'}
+              </button>
+              {isHost && (
+                <button onClick={onStart} disabled={!allReady} className="btn-primary flex-1"><Play size={18} /> Начать партию</button>
+              )}
+            </div>
+            {!allReady && (
+              <p className="mt-3 text-center text-sm text-white/45">
+                {players.length < min
+                  ? `Нужно минимум ${min} игрока.`
+                  : `${players.filter((p) => p.is_ready).length}/${players.length} готовы.`}
+              </p>
             )}
           </section>
           <aside className="panel h-fit p-5">

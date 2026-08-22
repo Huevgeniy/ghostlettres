@@ -8,6 +8,7 @@ import {
   type ClueCard,
   type TableClue,
   type Ballot,
+  type TallyResult,
   type GamePhase,
   buildDeck,
   shuffle,
@@ -224,7 +225,7 @@ export async function startGame(room: Room, players: Player[]) {
   }));
 }
 
-export async function placeTableClue(roomId: string, playerId: string, category: CategoryKey) {
+export async function placeTableClue(roomId: string, playerId: string, category: CategoryKey, note?: string) {
   const players = await fetchPlayers(roomId);
   await patchRoom(roomId, (room) => {
     const settings = room.settings;
@@ -241,6 +242,7 @@ export async function placeTableClue(roomId: string, playerId: string, category:
       card,
       authorId: playerId,
       authorName: me?.nickname ?? '',
+      note: note?.trim() || undefined,
     });
     const needed = tableSize(settings);
     if (table.length >= needed) {
@@ -431,6 +433,7 @@ export async function startNextRoundOrVote(roomId: string) {
   await patchRoom(roomId, (room) => {
     const round = room.state.round ?? 1;
     if (round >= room.settings.rounds) {
+      const cats = activeCategories(room.settings);
       const ballots: Record<string, Ballot> = {};
       players.filter((p) => p.role !== 'ghost').forEach((p) => {
         ballots[p.id] = { playerId: p.id, nickname: p.nickname, picks: {}, killerId: null, locked: false };
@@ -441,6 +444,10 @@ export async function startNextRoundOrVote(roomId: string) {
           ...room.state,
           ballots,
           tally: null,
+          voteRound: 1,
+          voteScope: cats.map((c) => c.key),
+          voteScopeKiller: room.settings.hasKiller,
+          voteDecided: {},
           events: addEvent(room.state, 'Финальное голосование. Призрак не голосует.'),
         }, 'voting', room.settings),
       };
@@ -460,29 +467,90 @@ export async function lockBallot(
   await patchRoom(roomId, (room) => {
     const ballots = { ...(room.state.ballots ?? {}) };
     if (!ballots[playerId] || ballots[playerId].locked) return { state: room.state };
-    const cats = activeCategories(room.settings);
-    const needKiller = room.settings.hasKiller;
-    if (cats.some((c) => !picks[c.key]) || (needKiller && !killerId)) return { state: room.state };
-    const b = { ...ballots[playerId], picks, killerId, locked: true };
+    // Нельзя голосовать за себя.
+    if (killerId && killerId === playerId) return { state: room.state };
+    const allCats = activeCategories(room.settings);
+    const scopeKeys: CategoryKey[] = room.state.voteScope && room.state.voteScope.length ? room.state.voteScope : allCats.map((c) => c.key);
+    const scope = allCats.filter((c) => scopeKeys.includes(c.key));
+    const needKiller = room.settings.hasKiller && !(room.state.voteScopeKiller === false);
+    if (scope.some((c) => !picks[c.key]) || (needKiller && !killerId)) return { state: room.state };
+    const scopedPicks: Ballot['picks'] = {};
+    scope.forEach((c) => { if (picks[c.key]) scopedPicks[c.key] = picks[c.key]; });
+    const b = { ...ballots[playerId], picks: scopedPicks, killerId, locked: true };
     ballots[playerId] = b;
     const voters = players.filter((p) => p.role !== 'ghost');
     const allLocked = voters.every((p) => ballots[p.id]?.locked);
     const state = { ...room.state, ballots, events: addEvent(room.state, `${b.nickname} нажал «Проголосовать».`) };
     if (!allLocked) return { state };
-    return revealVotes(room, state, players);
+    return resolveVote(room, state, players);
   });
 }
 
-function revealVotes(room: Room, state: RoomGameState, players: Player[]) {
-  const cats = activeCategories(room.settings);
-  const tally = computeTally(Object.values(state.ballots ?? {}), cats);
+function resolveVote(room: Room, state: RoomGameState, players: Player[]) {
+  const allCats = activeCategories(room.settings);
+  const round = state.voteRound ?? 1;
+  // Категории, которые решаются в ЭТОМ раунде (в 1-й голосовании — все, в переголосовании — только неопределившиеся).
+  const scopeKeys: CategoryKey[] = state.voteScope && state.voteScope.length ? state.voteScope : allCats.map((c) => c.key);
+  const scope = allCats.filter((c) => scopeKeys.includes(c.key));
+  const scopeKiller = room.settings.hasKiller && !(state.voteScopeKiller === false);
+  const tally = computeTally(Object.values(state.ballots ?? {}), scope);
+
+  // Неопределившиеся пункты в текущем раунде.
+  const undecidedCats = scope.filter((c) => !tally.picks[c.key]);
+  const killerUndecided = scopeKiller && !tally.killerId;
+
+  // Накопленные решения по категориям/убийце.
+  const decided = { ...(state.voteDecided ?? {}) } as Partial<Record<CategoryKey | 'killer', string | null>>;
+  scope.forEach((c) => {
+    if (tally.picks[c.key]) decided[c.key] = tally.picks[c.key];
+  });
+  if (scopeKiller && tally.killerId) decided.killer = tally.killerId;
+
+  // Если ещё есть неопределившиеся пункты и разрешены переголосования.
+  if ((undecidedCats.length > 0 || killerUndecided) && round < 3) {
+    const ballots: Record<string, Ballot> = {};
+    players.filter((p) => p.role !== 'ghost').forEach((p) => {
+      ballots[p.id] = { playerId: p.id, nickname: p.nickname, picks: {}, killerId: null, locked: false };
+    });
+    const desc = [
+      ...(undecidedCats.length ? [undecidedCats.map((c) => c.title).join(', ')] : []),
+      ...(killerUndecided ? ['убийца'] : []),
+    ].join(' и ');
+    return {
+      phase: 'voting' as const,
+      state: withDeadline({
+        ...state,
+        ballots,
+        tally: null,
+        voteRound: round + 1,
+        voteScope: undecidedCats.map((c) => c.key),
+        voteScopeKiller: killerUndecided,
+        voteDecided: decided,
+        events: addEvent(state, `Переголосование ${round + 1}. Требуется большинство по: ${desc}.`),
+      }, 'voting', room.settings),
+    };
+  }
+
+  // Финальные итоги: неопределившиеся пункты не засчитываются (не угаданы).
+  const finalTally: TallyResult = {
+    picks: {},
+    killerId: null,
+    ties: {},
+  };
+  allCats.forEach((c) => {
+    finalTally.picks[c.key] = (decided[c.key] as string | null) ?? null;
+    finalTally.ties[c.key] = !decided[c.key];
+  });
+  finalTally.killerId = room.settings.hasKiller ? (decided.killer as string | null) ?? null : null;
+  finalTally.ties.killer = room.settings.hasKiller && !decided.killer;
+
   return {
     phase: 'tally' as const,
     state: {
       ...state,
-      tally,
+      tally: finalTally,
       deadlineAt: null,
-      events: addEvent(state, 'Голоса открыты. Большинство зафиксировано на поле.'),
+      events: addEvent(state, 'Голоса открыты. Пункты без большинства не засчитаны.'),
     },
   };
 }
@@ -523,7 +591,7 @@ export async function expireTimer(roomId: string) {
       Object.keys(ballots).forEach((id) => {
         ballots[id] = { ...ballots[id], locked: true };
       });
-      return revealVotes(r, { ...r.state, ballots }, players);
+      return resolveVote(r, { ...r.state, ballots }, players);
     });
   }
 }
@@ -547,6 +615,23 @@ export async function revealTruth(roomId: string) {
       },
     };
   });
+}
+
+export async function setReady(playerId: string, ready: boolean) {
+  await updatePlayer(playerId, { is_ready: ready });
+}
+
+export async function resetToLobby(roomId: string) {
+  await supabase.from('game_rooms').update({
+    phase: 'lobby',
+    state: { events: addEvent({}, 'Игра возвращена в лобби.') },
+    updated_at: new Date().toISOString(),
+  }).eq('id', roomId);
+  // Сбрасываем роли и состояние игроков.
+  const players = await fetchPlayers(roomId);
+  for (const p of players) {
+    await updatePlayer(p.id, { role: null, hand: [], submitted_clue: null, is_ready: false });
+  }
 }
 
 export async function leaveRoom(roomId: string, playerId: string) {

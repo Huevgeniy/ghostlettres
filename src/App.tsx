@@ -8,6 +8,7 @@ import {
   startGame, placeTableClue, chooseTrueClues, ghostOpening, submitClue,
   ghostResolveMailbox, discardAndRefill, passSpeech, startNextRoundOrVote,
   lockBallot, revealTruth, expireTimer, updateRoomSettings, leaveRoom, joinRoom,
+  resetToLobby, setReady,
 } from '@/lib/api';
 import { type Player } from '@/lib/game';
 import { clearSession, loadSession, saveSession, sessionFromPlayer } from '@/lib/session';
@@ -54,6 +55,12 @@ export default function App() {
     setRoomCode('');
   }
 
+  async function handleToLobby() {
+    if (!room) return;
+    await resetToLobby(room.id);
+    setSeenRole(false);
+  }
+
   if (!roomId) return <Home onEnter={enter} />;
   if (loading || !room) return <Centered>Загрузка комнаты…</Centered>;
   if (error) return <Centered>{error}</Centered>;
@@ -75,6 +82,7 @@ export default function App() {
         onStart={() => startGame(room, players)}
         onLeave={handleLeave}
         onSettings={(s) => updateRoomSettings(room.id, s)}
+        onReady={(ready) => me && setReady(me.id, ready)}
       />
     );
   }
@@ -88,7 +96,7 @@ export default function App() {
       room={room}
       players={players}
       me={me}
-      onPlaceClue={(cat) => placeTableClue(room.id, me.id, cat)}
+      onPlaceClue={(cat, note) => placeTableClue(room.id, me.id, cat, note)}
       onTrueChoose={(choices, commit) => chooseTrueClues(room.id, choices, commit)}
       onGhostOpening={(card) => ghostOpening(room.id, card)}
       onSubmitClue={(card) => submitClue(room.id, me, card)}
@@ -101,6 +109,7 @@ export default function App() {
       onTimerExpire={(me.nickname === room.host_name || me.role === 'ghost') ? handleTimerExpire : () => undefined}
       onRestart={() => startGame(room, players)}
       onExit={handleLeave}
+      onToLobby={handleToLobby}
     />
   );
 }

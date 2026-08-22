@@ -1,4 +1,4 @@
-import { Ghost, Skull, Search } from 'lucide-react';
+import { Eye, Ghost, Search, Skull, Sparkles, Users } from 'lucide-react';
 import { type Role, ROLE_INFO } from '@/lib/game';
 
 type Props = {
@@ -10,6 +10,9 @@ const ICONS: Record<Role, typeof Ghost> = {
   ghost: Ghost,
   killer: Skull,
   detective: Search,
+  accomplice: Users,
+  witness: Eye,
+  expert: Sparkles,
 };
 
 export default function RoleReveal({ role, onClose }: Props) {

@@ -51,6 +51,7 @@ export const ROLE_INFO: Record<Role, { title: string; blurb: string; color: stri
 export type ClueCard = {
   id: string;
   label: string;
+  img?: string;
 };
 
 export type SubmittedClue = {
@@ -65,6 +66,7 @@ export type TableClue = {
   card: ClueCard;
   authorId: string;
   authorName: string;
+  note?: string;
 };
 
 export type GamePhase =
@@ -155,6 +157,10 @@ export type RoomGameState = {
   refreshedIds?: string[];
   ballots?: Record<string, Ballot>;
   tally?: TallyResult | null;
+  voteRound?: number;
+  voteScope?: CategoryKey[];
+  voteScopeKiller?: boolean;
+  voteDecided?: Partial<Record<CategoryKey | 'killer', string | null>>;
   winners?: 'detectives' | 'killer' | null;
   resultSummary?: ResultSummary | null;
   events?: GameEvent[];
@@ -183,8 +189,34 @@ const CARD_WORDS = [
   'Клетка', 'Якорь', 'Череп', 'Метла', 'Лупа', 'Чернила', 'Светильник', 'Цепь', 'Шприц', 'Магнит',
 ];
 
+export const TOTAL_CARDS = 300;
+
+/** Рандомно выдаёт N неповторяющихся карт-картинок из public/cards/1..TOTAL_CARDS.jpg */
+export function drawImageDeck(count: number, exclude: string[] = []): ClueCard[] {
+  const used = new Set(exclude);
+  const pool: number[] = [];
+  for (let i = 1; i <= TOTAL_CARDS; i++) {
+    const id = `img-${i}`;
+    if (!used.has(id)) pool.push(i);
+  }
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  const chosen = pool.slice(0, count);
+  return chosen.map((n) => ({
+    id: `img-${n}`,
+    label: `№${n}`,
+    img: `/cards/${n}.jpg`,
+  }));
+}
+
 export function buildDeck(): ClueCard[] {
-  return CARD_WORDS.map((label, i) => ({ id: `card-${i}`, label }));
+  // Полная колода из 300 картинок, перемешанная без повторов.
+  const ids: number[] = [];
+  for (let i = 1; i <= TOTAL_CARDS; i++) ids.push(i);
+  const order = shuffle(ids);
+  return order.map((n) => ({ id: `img-${n}`, label: `№${n}`, img: `/cards/${n}.jpg` }));
 }
 
 export function shuffle<T>(arr: T[]): T[] {
