@@ -25,6 +25,17 @@ export default function App() {
   const [seenRole, setSeenRole] = useState(false);
   const { room, players, loading, error } = useRoom(roomId);
 
+  // Если комната оказалась устаревшей (например, сервер перезапускался), очищаем
+  // сессию и автоматически возвращаемся на главный экран.
+  useEffect(() => {
+    if (error && /не найдена|больше не существует/i.test(error)) {
+      clearSession();
+      setRoomId(null);
+      setPlayerId(null);
+      setRoomCode('');
+    }
+  }, [error]);
+
   const me = useMemo(
     () => players.find((p) => p.id === playerId) ?? null,
     [players, playerId],
@@ -66,7 +77,16 @@ export default function App() {
 
   if (!roomId) return <Home onEnter={enter} />;
   if (loading || !room) return <Centered>Загрузка комнаты…</Centered>;
-  if (error) return <Centered>{error}</Centered>;
+  if (error) {
+    return (
+      <Centered>
+        <p>{error}</p>
+        <button className="btn-ghost mt-3" onClick={() => { clearSession(); setRoomId(null); setPlayerId(null); setRoomCode(''); }}>
+          В меню
+        </button>
+      </Centered>
+    );
+  }
   if (!me) {
     return (
       <Centered>
@@ -85,6 +105,7 @@ export default function App() {
         onStart={() => startGame(room, players)}
         onLeave={handleLeave}
         onSettings={(s) => updateRoomSettings(room.id, s)}
+
         onReady={(ready) => me && room && setReady(room.id, me.id, ready)}
       />
     );
