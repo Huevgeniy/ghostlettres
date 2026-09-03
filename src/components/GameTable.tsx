@@ -10,6 +10,8 @@ import {
   cluesPerCategory,
   clockwiseOrder,
   ROLE_INFO,
+  ROLE_IMAGES,
+  CHARACTER_ABILITIES,
 } from '@/lib/game';
 import ClueFace from './ClueFace';
 import PlayerRing from './PlayerRing';
@@ -28,6 +30,18 @@ type Props = {
   onAdvance: () => void;
   onLockVote: (picks: Partial<Record<CategoryKey, string>>, killerId: string | null) => void;
   onRevealTruth: () => void;
+  onPoliticianExtraVote: (category: CategoryKey, clueId: string) => void;
+  onActivateAbility: (playerId: string) => void;
+  onCancelAbility: (playerId: string) => void;
+  onAbilityOwnerPick: (playerId: string, choice: string) => void;
+  onAbilityGhostPick: (playerId: string, picks: string[]) => void;
+  onAbilityGhostNumber: (playerId: string, n: number) => void;
+  onAbilityFinish: (playerId: string) => void;
+  onAbilityCopy: (playerId: string, charId: string) => void;
+  onAbilityOwnerDiscard: (playerId: string, ids: string[]) => void;
+  onAbilitySendToGhost: (playerId: string, ids: string[]) => void;
+  onAbilityPlayerSubmit: (playerId: string, cardId: string) => void;
+  onAbilityGhostSkip: (playerId: string) => void;
   onTimerExpire: () => void;
   onRestart: () => void;
   onExit: () => void;
@@ -44,6 +58,8 @@ export default function GameTable(props: Props) {
   const order = clockwiseOrder(players);
   const isGhost = me.role === 'ghost';
   const isKiller = me.role === 'killer';
+  const killerAbsent = room.state.discardedRole === 'killer';
+  const ghostChoosesTruth = !room.settings.hasKiller || killerAbsent;
   const seesTruth = isGhost || isKiller || me.role === 'accomplice' || me.role === 'expert';
   const voteCats = (room.state.voteScope && room.state.voteScope.length
     ? cats.filter((c) => room.state.voteScope!.includes(c.key))
@@ -53,12 +69,16 @@ export default function GameTable(props: Props) {
   const round = room.state.round ?? 0;
   const totalRounds = room.settings.rounds;
   const [zoom, setZoom] = useState<{ card: ClueCard; note?: string } | null>(null);
+  const [roleCardZoom, setRoleCardZoom] = useState(false);
   const [selectedHand, setSelectedHand] = useState<string | null>(null);
   const [ghostKeep, setGhostKeep] = useState<string[]>([]);
   const [trueSel, setTrueSel] = useState<Partial<Record<CategoryKey, string>>>(truth);
   const [votePicks, setVotePicks] = useState<Partial<Record<CategoryKey, string>>>({});
   const [voteKiller, setVoteKiller] = useState<string | null>(null);
   const [noteInput, setNoteInput] = useState('');
+  const [abilitySel, setAbilitySel] = useState<string[]>([]);
+  const [polExtraCat, setPolExtraCat] = useState<CategoryKey | null>(null);
+  const [polExtraPicked, setPolExtraPicked] = useState<Partial<Record<CategoryKey, string>>>({});
   const remaining = useCountdown(room.state.deadlineAt, props.onTimerExpire);
 
   const grouped = useMemo(() => {
@@ -101,6 +121,15 @@ export default function GameTable(props: Props) {
         </div>
       )}
 
+      {roleCardZoom && me.role && (
+        <div className="zoom-layer" onClick={() => setRoleCardZoom(false)}>
+          <div onClick={(e) => e.stopPropagation()} className="zoom-card">
+            <img src={ROLE_IMAGES[me.role]} alt="Ваша роль" className="role-card-zoom-img" draggable={false} />
+            <button className="zoom-close" onClick={() => setRoleCardZoom(false)}><X size={20} /></button>
+          </div>
+        </div>
+      )}
+
       <div className="mx-auto max-w-7xl px-4 py-5">
         <header className="flex flex-wrap items-start justify-between gap-3 border-b border-white/10 pb-4">
           <div>
@@ -118,14 +147,27 @@ export default function GameTable(props: Props) {
             </div>
             <p className="mt-3 text-sm text-white/70">{banner}</p>
           </div>
-          <div className="text-right">
-            <div className="role-chip">{me.nickname}</div>
-            {me.role && (
-              <p className="mt-1 text-xs" style={{ color: ROLE_INFO[me.role].color }}>
-                {ROLE_INFO[me.role].title}
-              </p>
-            )}
-            <div className="mt-2 flex items-center justify-end gap-2">
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex items-center gap-2">
+              <div className="text-right">
+                <div className="role-chip">{me.nickname}</div>
+                {me.role && (
+                  <p className="mt-0.5 text-xs" style={{ color: ROLE_INFO[me.role].color }}>
+                    {ROLE_INFO[me.role].title}
+                  </p>
+                )}
+              </div>
+              {me.role && (
+                <button
+                  onClick={() => setRoleCardZoom(true)}
+                  className="role-card-mini"
+                  title="Открыть карточку роли"
+                >
+                  <img src={ROLE_IMAGES[me.role]} alt={ROLE_INFO[me.role].title} draggable={false} />
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
               {me.nickname === room.host_name && (
                 <button onClick={props.onToLobby} className="btn-ghost"><Settings2 size={16} /> В лобби</button>
               )}
@@ -161,6 +203,12 @@ export default function GameTable(props: Props) {
                   ))}
                 </div>
               )}
+              {isGhost && room.state.discardedRole && (
+                <p className="mt-2 rounded-lg border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
+                  Сброшенная роль (видно только вам): <b>{ROLE_INFO[room.state.discardedRole].title}</b>.
+                  {killerAbsent ? ' Убийцы нет в игре — вы сами выберете истинные улики.' : ' Этот игрок отсутствует.'}
+                </p>
+              )}
               {isGhost && (room.state.vanished?.length ?? 0) > 0 && (
                 <p className="mt-2 text-xs text-white/40">Исчезло карт (видно только вам): {room.state.vanished?.map((c) => c.label).join(', ')}</p>
               )}
@@ -182,7 +230,7 @@ export default function GameTable(props: Props) {
               {cats.map((cat) => (
                 <div key={cat.key} className="flex gap-3">
                   <div className="cat-badge">{cat.title}</div>
-                  <div className="grid flex-1 grid-cols-4 gap-2">
+                  <div className="grid flex-1 gap-2" style={{ gridTemplateColumns: `repeat(${per}, minmax(0, 1fr))` }}>
                     {Array.from({ length: per }).map((_, i) => {
                       const clue = grouped[cat.key]?.[i];
                       if (!clue) {
@@ -206,7 +254,7 @@ export default function GameTable(props: Props) {
                           marked={markFor(clue)}
                           selected={trueSel[cat.key] === clue.id || votePicks[cat.key] === clue.id}
                           onClick={() => {
-                            if (room.phase === 'true_choice' && (isKiller || (!room.settings.hasKiller && isGhost))) {
+                            if (room.phase === 'true_choice' && (isKiller || (ghostChoosesTruth && isGhost))) {
                               const next = { ...trueSel, [cat.key]: clue.id };
                               setTrueSel(next);
                               props.onTrueChoose(next, false);
@@ -230,24 +278,26 @@ export default function GameTable(props: Props) {
           </section>
 
           <aside className="space-y-4">
-            <div className="panel max-h-64 overflow-auto p-4">
-              <p className="eyebrow">Прошлые карты</p>
-              {(room.state.discard?.length ?? 0) + (room.state.vanished?.length ?? 0) === 0 ? (
-                <p className="mt-2 text-xs text-white/40">Пока пусто.</p>
-              ) : (
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {[...(room.state.discard ?? []), ...(room.state.vanished ?? [])].map((c) => (
-                    <ClueFace key={c.id} card={c} className="clue-hint" onClick={() => setZoom({ card: c })} />
-                  ))}
-                </div>
-              )}
-              {(room.state.discard?.length ?? 0) > 0 && (
-                <p className="mt-2 text-[.65rem] text-white/35">Сброс: {room.state.discard?.length}</p>
-              )}
-              {(room.state.vanished?.length ?? 0) > 0 && (
-                <p className="text-[.65rem] text-white/35">Исчезло: {room.state.vanished?.length}</p>
-              )}
-            </div>
+            {isGhost && (
+              <div className="panel max-h-64 overflow-auto p-4">
+                <p className="eyebrow">Прошлые карты ({isGhost ? 'видно только вам' : ''})</p>
+                {(room.state.discard?.length ?? 0) + (room.state.vanished?.length ?? 0) === 0 ? (
+                  <p className="mt-2 text-xs text-white/40">Пока пусто.</p>
+                ) : (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {[...(room.state.discard ?? []), ...(room.state.vanished ?? [])].map((c) => (
+                      <ClueFace key={c.id} card={c} className="clue-hint" onClick={() => setZoom({ card: c })} />
+                    ))}
+                  </div>
+                )}
+                {(room.state.discard?.length ?? 0) > 0 && (
+                  <p className="mt-2 text-[.65rem] text-white/35">Сброс: {room.state.discard?.length}</p>
+                )}
+                {(room.state.vanished?.length ?? 0) > 0 && (
+                  <p className="text-[.65rem] text-white/35">Исчезло: {room.state.vanished?.length}</p>
+                )}
+              </div>
+            )}
             <div className="panel max-h-64 overflow-auto p-4">
               <p className="eyebrow">Журнал</p>
               <ul className="mt-2 space-y-1.5 text-xs text-white/55">
@@ -297,7 +347,7 @@ export default function GameTable(props: Props) {
 
         {room.phase === 'true_choice' && (
           <div className="panel mt-5 p-4">
-            {(isKiller || (!room.settings.hasKiller && isGhost)) ? (
+            {(isKiller || (ghostChoosesTruth && isGhost)) ? (
               <>
                 <p className="font-semibold text-rose-200">Отметьте по одной истинной улике в каждой категории.</p>
                 <button
@@ -338,18 +388,24 @@ export default function GameTable(props: Props) {
 
         {room.phase === 'submit' && (
           <div className="panel mt-5 p-4">
-            {me.submitted_clue ? (
-              <p className="text-sm text-white/60">Карта в почтовом ящике. Ожидаем остальных ({players.filter((p) => p.submitted_clue).length}/{players.length}).</p>
-            ) : (
-              <>
-                <p className="font-semibold text-cyan">{isGhost ? 'Вы тоже кладёте 1 карту в ящик, затем разберёте все отправления.' : 'Отправьте 1 улику призраку. Не называйте её до обсуждения.'}</p>
-                <Hand me={me} selected={selectedHand} setSelected={setSelectedHand} disabled={false} />
-                <button className="btn-primary mt-3" disabled={!selectedHand} onClick={() => {
-                  const card = me.hand.find((c) => c.id === selectedHand);
-                  if (card) { props.onSubmitClue(card); setSelectedHand(null); }
-                }}><Send size={16} /> В почтовый ящик</button>
-              </>
-            )}
+            {(() => {
+              const courierSecond = me.character === 'курьер' && me.submitted_clue && !me.submitted_clue.card2;
+              if (me.submitted_clue && !courierSecond) {
+                return <p className="text-sm text-white/60">Карта в почтовом ящике. Ожидаем остальных ({players.filter((p) => p.submitted_clue).length}/{players.length}).</p>;
+              }
+              return (
+                <>
+                  <p className="font-semibold text-cyan">
+                    {courierSecond ? `Курьер: отправьте вторую карту (осталось ${me.hand.length} в руке).` : isGhost ? 'Вы тоже кладёте 1 карту в ящик, затем разберёте все отправления.' : 'Отправьте 1 улику призраку. Не называйте её до обсуждения.'}
+                  </p>
+                  <Hand me={me} selected={selectedHand} setSelected={setSelectedHand} disabled={false} />
+                  <button className="btn-primary mt-3" disabled={!selectedHand} onClick={() => {
+                    const card = me.hand.find((c) => c.id === selectedHand);
+                    if (card) { props.onSubmitClue(card); setSelectedHand(null); }
+                  }}><Send size={16} /> {courierSecond ? 'Отправить вторую' : 'В почтовый ящик'}</button>
+                </>
+              );
+            })()}
           </div>
         )}
 
@@ -436,6 +492,30 @@ export default function GameTable(props: Props) {
                     ))}
                   </div>
                 )}
+                {me.character === 'политик' && !(room.state.usedAbilities ?? []).includes('политик') && (
+                  <div className="mt-4 rounded-xl border border-amber-500/25 bg-amber-500/10 p-3">
+                    <p className="text-sm font-semibold text-amber-100">Политик: добавьте ещё 1 голос за любой вариант (один раз за партию).</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {cats.map((c) => (
+                        <button key={c.key} className={`chip ${polExtraCat === c.key ? 'chip-active' : ''}`} onClick={() => setPolExtraCat(c.key)}>{c.title}</button>
+                      ))}
+                    </div>
+                    {polExtraCat && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {grouped[polExtraCat]?.map((t) => (
+                          <button key={t.id} className={`chip ${polExtraPicked[polExtraCat] === t.id ? 'chip-active' : ''}`} onClick={() => setPolExtraPicked((s) => ({ ...s, [polExtraCat!]: t.id }))}>{t.card.label}</button>
+                        ))}
+                      </div>
+                    )}
+                    <button
+                      className="btn-primary mt-3"
+                      disabled={!polExtraCat || !polExtraPicked[polExtraCat!]}
+                      onClick={() => { if (polExtraCat && polExtraPicked[polExtraCat]) { props.onPoliticianExtraVote(polExtraCat, polExtraPicked[polExtraCat]); setPolExtraCat(null); } }}
+                    >
+                      <Vote size={16} /> Зафиксировать доп. голос
+                    </button>
+                  </div>
+                )}
                 <button
                   className="btn-primary mt-4"
                   disabled={voteCats.some((c) => !votePicks[c.key]) || (needKiller && !voteKiller)}
@@ -471,9 +551,435 @@ export default function GameTable(props: Props) {
             </div>
           </div>
         )}
+
+        <AbilityPanel
+          room={room}
+          players={players}
+          me={me}
+          table={table}
+          cats={cats}
+          truth={truth}
+          onOwnerPick={(choice) => props.onAbilityOwnerPick(me.id, choice)}
+          onGhostPick={(picks) => props.onAbilityGhostPick(me.id, picks)}
+          onGhostNumber={(n) => props.onAbilityGhostNumber(me.id, n)}
+          onCancel={() => props.onCancelAbility(me.id)}
+          onFinish={() => props.onAbilityFinish(me.id)}
+          onAbility={(playerId) => props.onActivateAbility(playerId)}
+          onCopy={(charId) => props.onAbilityCopy(me.id, charId)}
+          onDiscardHand={(ids) => props.onAbilityOwnerDiscard(me.id, ids)}
+          onSendToGhost={(ids) => props.onAbilitySendToGhost(me.id, ids)}
+          onPlayerSubmit={(cardId) => props.onAbilityPlayerSubmit(me.id, cardId)}
+          onGhostSkip={() => props.onAbilityGhostSkip(me.id)}
+          sel={abilitySel}
+          setSel={setAbilitySel}
+        />
       </div>
     </main>
   );
+}
+
+function AbilityPanel({ room, players, me, table, cats, truth, onOwnerPick, onGhostPick, onGhostNumber, onCancel, onFinish, onAbility, onCopy, onDiscardHand, onSendToGhost, onPlayerSubmit, onGhostSkip, sel, setSel }: {
+  room: Room;
+  players: Player[];
+  me: Player;
+  table: TableClue[];
+  cats: { key: CategoryKey; title: string; hint: string }[];
+  truth: Partial<Record<CategoryKey, string>>;
+  onOwnerPick: (choice: string) => void;
+  onGhostPick: (picks: string[]) => void;
+  onGhostNumber: (n: number) => void;
+  onCancel: () => void;
+  onFinish: () => void;
+  onAbility: (playerId: string) => void;
+  onCopy: (charId: string) => void;
+  onDiscardHand: (ids: string[]) => void;
+  onSendToGhost: (ids: string[]) => void;
+  onPlayerSubmit: (cardId: string) => void;
+  onGhostSkip: () => void;
+  sel: string[];
+  setSel: (s: string[]) => void;
+}) {
+  const ab = room.state.ability ?? null;
+  const isGhost = me.role === 'ghost';
+  const isOwner = !!ab && ab.ownerId === me.id;
+  const def = ab ? CHARACTER_ABILITIES[ab.characterId] : null;
+  const used = room.state.usedAbilities ?? [];
+
+  // Кнопка активации собственной способности.
+  if (!ab && me.character && !used.includes(me.character)) {
+    const myDef = CHARACTER_ABILITIES[me.character];
+    return (
+      <button className="btn-primary mt-5" onClick={() => onAbility(me.id)}>
+        Применить способность: {myDef?.title ?? me.character}
+      </button>
+    );
+  }
+
+  if (!ab || !def) return null;
+
+  // ===== ПОЛИТИК: активация доступна, но применяется в момент голосования =====
+  if (def.kind === 'extra_vote' && room.phase !== 'voting') {
+    return (
+      <div className="panel mt-5 p-4">
+        <p className="font-semibold text-cyan">Политик · {def.description}. Активируйте в момент одного из голосований.</p>
+      </div>
+    );
+  }
+
+  // ===== КУРЬЕР: применяется в фазе submit (отправить 2) =====
+  if (def.kind === 'send_two' && ab.step === 'owner_target' && room.phase === 'submit') {
+    return (
+      <div className="panel mt-5 p-4">
+        <p className="font-semibold text-cyan">Курьер: {def.description}</p>
+        <p className="mt-1 text-sm text-white/60">Выберите 2 карты из руки и отправьте призраку.</p>
+      </div>
+    );
+  }
+
+  // ===== АКТЁР: выбор скопированной способности =====
+  if (isOwner && ab.step === 'copy_pick') {
+    const others = players.filter((p) => p.role !== 'ghost' && p.id !== me.id && p.character);
+    return (
+      <div className="panel mt-5 p-4">
+        <p className="font-semibold text-cyan">Актёр: скопируйте способность другого персонажа.</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {others.map((p) => (
+            <button key={p.id} className="btn-secondary" onClick={() => onCopy(p.character!)}>
+              {players.find((x) => x.id === p.id)?.nickname}: {CHARACTER_ABILITIES[p.character!]?.title ?? p.character}
+            </button>
+          ))}
+        </div>
+        <button className="btn-ghost mt-3" onClick={onCancel}>Отмена</button>
+      </div>
+    );
+  }
+
+  // ===== ОТКРЫТЬ КАРТЫ ИЗ КОЛОДЫ (игрок): видят игрок и призрак, ghost может указать 1 =====
+  if (ab.kind === 'show_deck3') {
+    if (isGhost) {
+      return (
+        <div className="panel mt-5 p-4">
+          <p className="font-semibold text-rose-200">Способность «{def.title}». Игрок {players.find((p) => p.id === ab.ownerId)?.nickname} открыл 3 карты. Укажите на 1 важную (или пропустите):</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(ab.revealed ?? []).map((c) => <ClueFace key={c.id} card={c} className={`clue-hint ${sel.includes(c.id) ? 'ring-2 ring-rose-300' : ''}`} onClick={() => setSel([c.id])} />)}
+          </div>
+          <button className="btn-primary mt-4" disabled={sel.length === 0} onClick={() => { onGhostPick(sel); setSel([]); }}>Указать</button>
+          <button className="btn-ghost mt-3 ml-2" onClick={onGhostSkip}>Пропустить</button>
+        </div>
+      );
+    }
+    if (isOwner) {
+      if (ab.step === 'reveal_pick' || ab.step === 'ghost_action') {
+        return <p className="mt-5 text-center text-sm text-white/50">Открытые карты: {players.find((p) => p.id === ab.ownerId)?.nickname} и призрак видят 3 из колоды. Призрак решает…</p>;
+      }
+      return (
+        <div className="panel mt-5 p-4">
+          <p className="font-semibold text-cyan">Результат «{def.title}»</p>
+          <div className="mt-3 flex flex-wrap gap-2">{(ab.revealed ?? []).map((c) => <ClueFace key={c.id} card={c} className="clue-hint" />)}</div>
+          <button className="btn-primary mt-4" onClick={onFinish}>Понятно</button>
+        </div>
+      );
+    }
+    return null;
+  }
+
+  // ===== ПОВАР: открыть 3 и отправить призраку (вместо 1) =====
+  if (ab.kind === 'send_deck3') {
+    if (isOwner && ab.step === 'send_to_ghost') {
+      return (
+        <div className="panel mt-5 p-4">
+          <p className="font-semibold text-cyan">{def.title}: {def.description}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(ab.revealed ?? []).map((c) => <ClueFace key={c.id} card={c} className={`clue-hand ${sel.includes(c.id) ? 'ring-2 ring-rose-300' : ''}`} onClick={() => setSel(sel.includes(c.id) ? sel.filter((x) => x !== c.id) : [...sel, c.id])} />)}
+          </div>
+          <button className="btn-primary mt-4" disabled={sel.length === 0} onClick={() => onSendToGhost(sel)}>Отправить призраку</button>
+          <button className="btn-ghost mt-3 ml-2" onClick={onCancel}>Отмена</button>
+        </div>
+      );
+    }
+  }
+
+  // ===== СПЕЦАГЕНТ: посмотреть 3 случайные из сброса =====
+  if (ab.kind === 'view_discard3') {
+    if (isOwner && ab.step === 'owner_view') {
+      return (
+        <div className="panel mt-5 p-4">
+          <p className="font-semibold text-cyan">{def.title}: {def.description}</p>
+          <div className="mt-3 flex flex-wrap gap-2">{(ab.revealed ?? []).map((c) => <ClueFace key={c.id} card={c} className="clue-hint" />)}</div>
+          <button className="btn-primary mt-4" onClick={onFinish}>Понятно</button>
+        </div>
+      );
+    }
+  }
+
+  // ===== МЕДИУМ (призрак показывает 1 из сброса) =====
+  if (ab.kind === 'ghost_from_discard') {
+    if (isGhost && ab.step === 'ghost_action') {
+      return (
+        <div className="panel mt-5 p-4">
+          <p className="font-semibold text-rose-200">{def.title}: укажите 1 карту из сброса для {players.find((p) => p.id === ab.ownerId)?.nickname}.</p>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {(room.state.discard ?? []).map((c) => <button key={c.id} className="chip" onClick={() => onGhostPick([c.id])}>{c.label}</button>)}
+          </div>
+          <button className="btn-ghost mt-3" onClick={onCancel}>Отмена</button>
+        </div>
+      );
+    }
+    if (isOwner && ab.step === 'owner_view') {
+      return (
+        <div className="panel mt-5 p-4">
+          <p className="font-semibold text-cyan">Медиум: призрак показал вам карту из сброса.</p>
+          <div className="mt-3 flex flex-wrap gap-2">{(ab.revealed ?? []).map((c) => <ClueFace key={c.id} card={c} className="clue-hint" />)}</div>
+          <button className="btn-primary mt-4" onClick={onFinish}>Понятно</button>
+        </div>
+      );
+    }
+  }
+
+  // ===== ПИСАТЕЛЬ (призрак убирает 3 из руки) =====
+  if (ab.kind === 'reveal_hand_left') {
+    if (isGhost && ab.step === 'ghost_action') {
+      return (
+        <div className="panel mt-5 p-4">
+          <p className="font-semibold text-rose-200">{def.title}: выберите 3 карты из руки {players.find((p) => p.id === ab.ownerId)?.nickname} в сброс.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(ab.handRevealed ?? []).map((c) => <ClueFace key={c.id} card={c} className={`clue-hand ${sel.includes(c.id) ? 'ring-2 ring-rose-300' : ''}`} onClick={() => setSel(sel.includes(c.id) ? sel.filter((x) => x !== c.id) : [...sel, c.id])} />)}
+          </div>
+          <button className="btn-primary mt-4" disabled={sel.length !== 3} onClick={() => { onGhostPick(sel); setSel([]); }}>Убрать 3</button>
+          <button className="btn-ghost mt-3 ml-2" onClick={onCancel}>Отмена</button>
+        </div>
+      );
+    }
+    if (isOwner && ab.step === 'owner_view') {
+      return (
+        <div className="panel mt-5 p-4">
+          <p className="font-semibold text-cyan">{def.title}: призрак убрал 3 карты, добор уже сделан.</p>
+          <button className="btn-primary mt-4" onClick={onFinish}>Понятно</button>
+        </div>
+      );
+    }
+  }
+
+  // ===== АНТИКВАР (призрак указывает 1 важную из руки или пропускает) =====
+  if (ab.kind === 'reveal_hand_point') {
+    if (isGhost && ab.step === 'ghost_action') {
+      return (
+        <div className="panel mt-5 p-4">
+          <p className="font-semibold text-rose-200">{def.title}: укажите 1 важную карту из руки {players.find((p) => p.id === ab.ownerId)?.nickname} (или пропустите):</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(ab.handRevealed ?? []).map((c) => <ClueFace key={c.id} card={c} className={`clue-hand ${sel.includes(c.id) ? 'ring-2 ring-rose-300' : ''}`} onClick={() => setSel([c.id])} />)}
+          </div>
+          <button className="btn-primary mt-4" disabled={sel.length === 0} onClick={() => { onGhostPick(sel); setSel([]); }}>Указать</button>
+          <button className="btn-ghost mt-3 ml-2" onClick={onGhostSkip}>Пропустить</button>
+        </div>
+      );
+    }
+    if (isOwner && ab.step === 'owner_view') {
+      return (
+        <div className="panel mt-5 p-4">
+          <p className="font-semibold text-cyan">Антиквар: важная карта по мнению призрака.</p>
+          <div className="mt-3 flex flex-wrap gap-2">{(ab.revealed ?? []).map((c) => <ClueFace key={c.id} card={c} className="clue-hint" />)}</div>
+          <button className="btn-primary mt-4" onClick={onFinish}>Понятно</button>
+        </div>
+      );
+    }
+  }
+
+  // ===== ТРЕНЕР (игроки кладут карты, призрак показывает лучшую) =====
+  if (ab.kind === 'trainer') {
+    if (isOwner && ab.step === 'owner_target') {
+      return (
+        <div className="panel mt-5 p-4">
+          <p className="font-semibold text-cyan">Тренер: выберите до 3 игроков (кроме призрака и себя).</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {players.filter((p) => p.role !== 'ghost' && p.id !== me.id).map((p) => (
+              <button key={p.id} className={`chip ${sel.includes(p.id) ? 'chip-active' : ''}`} onClick={() => { setSel(sel.includes(p.id) ? sel.filter((x) => x !== p.id) : (sel.length >= 3 ? sel : [...sel, p.id])); }}>{p.nickname}</button>
+            ))}
+          </div>
+          <button className="btn-primary mt-3" disabled={sel.length === 0} onClick={() => onOwnerPick(sel.join(','))}>Подтвердить</button>
+          <button className="btn-ghost mt-3" onClick={onCancel}>Отмена</button>
+        </div>
+      );
+    }
+    if (!isGhost && !isOwner && (ab.pickedPlayers ?? []).includes(me.id)) {
+      return (
+        <div className="panel mt-5 p-4">
+          <p className="font-semibold text-cyan">Тренер: {players.find((p) => p.id === ab.ownerId)?.nickname} выбрал вас. Положите 1 карту взакрытую призраку.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {me.hand.map((c) => <button key={c.id} className="chip" onClick={() => onPlayerSubmit(c.id)}>{c.label}</button>)}
+          </div>
+        </div>
+      );
+    }
+    if (isGhost && ab.step === 'ghost_action') {
+      return (
+        <div className="panel mt-5 p-4">
+          <p className="font-semibold text-rose-200">Тренер: игроки положили карты взакрытую. Выберите 1 лучшую для {players.find((p) => p.id === ab.ownerId)?.nickname}.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(ab.copies ?? []).map((s) => <button key={s.card.id} className="chip" onClick={() => onGhostPick([s.card.id])}>{s.card.label}</button>)}
+          </div>
+        </div>
+      );
+    }
+    if (isOwner && ab.step === 'owner_view') {
+      return (
+        <div className="panel mt-5 p-4">
+          <p className="font-semibold text-cyan">Тренер: лучшая карта от игроков.</p>
+          <div className="mt-3 flex flex-wrap gap-2">{(ab.revealed ?? []).map((c) => <ClueFace key={c.id} card={c} className="clue-hint" />)}</div>
+          <button className="btn-primary mt-4" onClick={onFinish}>Понятно</button>
+        </div>
+      );
+    }
+  }
+
+  // ===== ДЕЗИНСЕКТОР (сбросить часть руки) =====
+  if (ab.kind === 'discard_hand') {
+    if (isOwner && ab.step === 'owner_discard') {
+      return (
+        <div className="panel mt-5 p-4">
+          <p className="font-semibold text-cyan">Дезинсектор: выберите карты для сброса (можно ни одной). Рука потом доберётся до 5.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {me.hand.map((c) => <ClueFace key={c.id} card={c} className={`clue-hand ${sel.includes(c.id) ? 'ring-2 ring-rose-300' : ''}`} onClick={() => setSel(sel.includes(c.id) ? sel.filter((x) => x !== c.id) : [...sel, c.id])} />)}
+          </div>
+          <button className="btn-primary mt-4" onClick={() => onDiscardHand(sel)}>Подтвердить сброс</button>
+          <button className="btn-ghost mt-3 ml-2" onClick={onCancel}>Отмена</button>
+        </div>
+      );
+    }
+  }
+
+  // ===== Владелец: фаза owner_target (выбор категории/улики/игрока) =====
+  if (isOwner && ab.step === 'owner_target') {
+    const needsCat = ['бродяга', 'врач', 'официант', 'ученый', 'шериф'].includes(ab.characterId);
+    if (needsCat) {
+      return (
+        <div className="panel mt-5 p-4">
+          <p className="font-semibold text-cyan">Выберите категорию: <b>{def.title}</b> — {def.description}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {cats.map((c) => (
+              <button key={c.key} className="btn-secondary" onClick={() => onOwnerPick(c.key)}>{c.title}</button>
+            ))}
+          </div>
+          <button className="btn-ghost mt-3" onClick={onCancel}>Отмена</button>
+        </div>
+      );
+    }
+    if (ab.characterId === 'хакер') {
+      return (
+        <div className="panel mt-5 p-4">
+          <p className="font-semibold text-cyan">Укажите на подсказку на поле: <b>{def.title}</b></p>
+          <div className="mt-2 flex flex-wrap gap-1.5">{table.map((t) => <button key={t.id} className="chip chip-active" onClick={() => onOwnerPick(t.id)}>{t.card.label}</button>)}</div>
+          <button className="btn-ghost mt-3" onClick={onCancel}>Отмена</button>
+        </div>
+      );
+    }
+    if (ab.characterId === 'библиотекарь') {
+      return (
+        <div className="panel mt-5 p-4">
+          <p className="font-semibold text-cyan">Укажите на подсказку: <b>{def.title}</b></p>
+          <div className="mt-2 flex flex-wrap gap-1.5">{table.map((t) => <button key={t.id} className="chip" onClick={() => onOwnerPick(t.id)}>{t.card.label}</button>)}</div>
+          <button className="btn-ghost mt-3" onClick={onCancel}>Отмена</button>
+        </div>
+      );
+    }
+    if (ab.characterId === 'тренер') {
+      return (
+        <div className="panel mt-5 p-4">
+          <p className="font-semibold text-cyan">Выберите до 3 игроков (кроме призрака и себя): <b>{def.title}</b></p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {players.filter((p) => p.role !== 'ghost' && p.id !== me.id).map((p) => (
+              <button key={p.id} className={`chip ${sel.includes(p.id) ? 'chip-active' : ''}`} onClick={() => { setSel(sel.includes(p.id) ? sel.filter((x) => x !== p.id) : (sel.length >= 3 ? sel : [...sel, p.id])); }}>{p.nickname}</button>
+            ))}
+          </div>
+          <button className="btn-primary mt-3" disabled={sel.length === 0} onClick={() => onOwnerPick(sel.join(','))}>Подтвердить</button>
+          <button className="btn-ghost mt-3" onClick={onCancel}>Отмена</button>
+        </div>
+      );
+    }
+    return null;
+  }
+
+  // ===== Оператора: фаза owner_view (просмотр результата) =====
+  if (isOwner && ab.step === 'owner_view') {
+    const ghostPicks = ab.ghostPicks ?? [];
+    return (
+      <div className="panel mt-5 p-4">
+        <p className="font-semibold text-cyan">Результат способности «{def.title}»</p>
+        {def.kind === 'point_number' ? (
+          <p className="mt-3 text-2xl font-bold text-gold">{ab.resultNumber ?? '—'}</p>
+        ) : ghostPicks.length === 0 ? (
+          <p className="mt-2 text-sm text-white/60">Призрак не указал ничего.</p>
+        ) : (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {table.filter((t) => ghostPicks.includes(t.id)).map((t) => <ClueFace key={t.id} card={t.card} className="clue-hint" highlighted />)}
+            {players.flatMap((p) => p.hand).filter((c) => ghostPicks.includes(c.id)).map((c) => <ClueFace key={c.id} card={c} className="clue-hint" />)}
+          </div>
+        )}
+        <button className="btn-primary mt-4" onClick={onFinish}>Понятно</button>
+      </div>
+    );
+  }
+
+  // ===== Призрак: фаза ghost_action (указание на улики/категорию/число/игрока) =====
+  if (isGhost && ab.step === 'ghost_action') {
+    if (def.kind === 'point_number') {
+      const maxN = Math.max(players.length - 1, 1);
+      return (
+        <div className="panel mt-5 p-4">
+          <p className="font-semibold text-rose-200">Способность «{def.title}» от {players.find((p) => p.id === ab.ownerId)?.nickname}. Укажите число:</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {Array.from({ length: maxN + 1 }).map((_, i) => (
+              <button key={i} className="btn-secondary" onClick={() => onGhostNumber(i)}>{i}</button>
+            ))}
+          </div>
+          <button className="btn-ghost mt-3" onClick={onCancel}>Отмена</button>
+        </div>
+      );
+    }
+    if (def.kind === 'point_category') {
+      return (
+        <div className="panel mt-5 p-4">
+          <p className="font-semibold text-rose-200">Способность «{def.title}» от {players.find((p) => p.id === ab.ownerId)?.nickname}. Укажите категорию:</p>
+          <div className="mt-3 flex flex-wrap gap-2">{cats.map((c) => <button key={c.key} className="btn-secondary" onClick={() => onGhostPick([c.key])}>{c.title}</button>)}</div>
+          <button className="btn-ghost mt-3" onClick={onCancel}>Отмена</button>
+        </div>
+      );
+    }
+    if (def.kind === 'point_player') {
+      return (
+        <div className="panel mt-5 p-4">
+          <p className="font-semibold text-rose-200">Способность «{def.title}». Укажите игрока (не убийцу):</p>
+          <div className="mt-3 flex flex-wrap gap-2">{players.filter((p) => p.role !== 'killer').map((p) => <button key={p.id} className="btn-secondary" onClick={() => onGhostPick([p.id])}>{p.nickname}</button>)}</div>
+          <button className="btn-ghost mt-3" onClick={onCancel}>Отмена</button>
+        </div>
+      );
+    }
+    if (def.kind === 'point_two_clues') {
+      return (
+        <div className="panel mt-5 p-4">
+          <p className="font-semibold text-rose-200">Способность «{def.title}». Укажите 2 связанные улики:</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">{table.map((t) => <button key={t.id} className={`chip ${sel.includes(t.id) ? 'chip-active' : ''}`} onClick={() => setSel(sel.includes(t.id) ? sel.filter((x) => x !== t.id) : [...sel, t.id])}>{t.card.label}</button>)}</div>
+          <button className="btn-primary mt-3" disabled={sel.length !== 2} onClick={() => { onGhostPick(sel); setSel([]); }}>Готово</button>
+          <button className="btn-ghost mt-3" onClick={onCancel}>Отмена</button>
+        </div>
+      );
+    }
+    // point_clue (1 улица) — призрак выбирает одну улику на поле.
+    return (
+      <div className="panel mt-5 p-4">
+        <p className="font-semibold text-rose-200">Способность «{def.title}». Укажите улику на поле:</p>
+        <div className="mt-2 flex flex-wrap gap-1.5">{table.map((t) => <button key={t.id} className="chip" onClick={() => onGhostPick([t.id])}>{t.card.label}</button>)}</div>
+        <button className="btn-ghost mt-3" onClick={onCancel}>Отмена</button>
+      </div>
+    );
+  }
+
+  // Владелец ждёт призрака.
+  if (isOwner && ab.step === 'ghost_action') {
+    return <p className="mt-5 text-center text-sm text-white/50">Ожидаем призрака…</p>;
+  }
+
+  return null;
 }
 
 function Hand({ me, selected, setSelected, disabled }: { me: Player; selected: string | null; setSelected: (id: string | null) => void; disabled: boolean }) {
@@ -496,7 +1002,11 @@ function Hand({ me, selected, setSelected, disabled }: { me: Player; selected: s
 function useBanner(room: Room, players: Player[], me: Player) {
   const speaker = players.find((p) => p.id === room.state.speakerId)?.nickname;
   if (room.phase === 'setup') return 'Сбор улик: кладите карту в категорию по кругу, начиная с призрака.';
-  if (room.phase === 'true_choice') return room.settings.hasKiller ? 'Убийца тайно выбирает истинные улики.' : 'Призрак тайно выбирает истинные улики.';
+  if (room.phase === 'true_choice') {
+    if (!room.settings.hasKiller) return 'Призрак тайно выбирает истинные улики.';
+    if (room.state.discardedRole === 'killer') return 'Убийца был сброшен: призрак сам выбирает истинные улики.';
+    return 'Убийца тайно выбирает истинные улики.';
+  }
   if (room.phase === 'ghost_opening') return 'Призрак может открыть первую зацепку.';
   if (room.phase === 'submit') return me.submitted_clue ? 'Ожидаем остальные карты в почтовом ящике' : 'Отправьте по 1 улике призраку';
   if (room.phase === 'ghost_review') return 'Ожидаем решение призрака';

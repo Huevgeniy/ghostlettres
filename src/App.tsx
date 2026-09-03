@@ -8,7 +8,10 @@ import {
   startGame, placeTableClue, chooseTrueClues, ghostOpening, submitClue,
   ghostResolveMailbox, discardAndRefill, passSpeech, startNextRoundOrVote,
   lockBallot, revealTruth, expireTimer, updateRoomSettings, leaveRoom, joinRoom,
-  resetToLobby, setReady,
+  resetToLobby, setReady, chooseCharacter,
+  activateAbility, cancelAbility, abilityOwnerPick, abilityGhostPick, abilityGhostNumber, abilityFinish,
+  abilityCopy, abilityOwnerDiscard, abilitySendToGhost, abilityPlayerSubmit, abilityGhostSkip,
+  politicianExtraVote,
 } from '@/lib/api';
 import { type Player } from '@/lib/game';
 import { clearSession, loadSession, saveSession, sessionFromPlayer } from '@/lib/session';
@@ -82,13 +85,24 @@ export default function App() {
         onStart={() => startGame(room, players)}
         onLeave={handleLeave}
         onSettings={(s) => updateRoomSettings(room.id, s)}
-        onReady={(ready) => me && setReady(me.id, ready)}
+        onReady={(ready) => me && room && setReady(room.id, me.id, ready)}
       />
     );
   }
 
   if (showRole && me.role) {
     return <RoleReveal role={me.role} onClose={() => setShowRole(false)} />;
+  }
+
+  if (room.phase === 'character_choice') {
+    return (
+      <CharacterPicker
+        role={me.role}
+        offers={room.state.charOffers?.[me.id] ?? []}
+        chosen={me.character}
+        onPick={(cid) => room && chooseCharacter(room.id, me.id, cid)}
+      />
+    );
   }
 
   return (
@@ -106,8 +120,20 @@ export default function App() {
       onAdvance={() => startNextRoundOrVote(room.id)}
       onLockVote={(picks, killerId) => lockBallot(room.id, me.id, picks, killerId)}
       onRevealTruth={() => revealTruth(room.id)}
+      onActivateAbility={(playerId) => room && activateAbility(room.id, playerId)}
+      onCancelAbility={(playerId) => room && cancelAbility(room.id, playerId)}
+      onAbilityOwnerPick={(playerId, choice) => room && abilityOwnerPick(room.id, playerId, choice)}
+      onAbilityGhostPick={(playerId, picks) => room && abilityGhostPick(room.id, playerId, picks)}
+      onAbilityGhostNumber={(playerId, n) => room && abilityGhostNumber(room.id, playerId, n)}
+      onAbilityFinish={(playerId) => room && abilityFinish(room.id, playerId)}
+      onPoliticianExtraVote={(category, clueId) => room && politicianExtraVote(room.id, me.id, category, clueId)}
+      onAbilityCopy={(playerId, charId) => room && abilityCopy(room.id, playerId, charId)}
+      onAbilityOwnerDiscard={(playerId, ids) => room && abilityOwnerDiscard(room.id, playerId, ids)}
+      onAbilitySendToGhost={(playerId, ids) => room && abilitySendToGhost(room.id, playerId, ids)}
+      onAbilityPlayerSubmit={(playerId, cardId) => room && abilityPlayerSubmit(room.id, playerId, cardId)}
+      onAbilityGhostSkip={(playerId) => room && abilityGhostSkip(room.id, playerId)}
       onTimerExpire={(me.nickname === room.host_name || me.role === 'ghost') ? handleTimerExpire : () => undefined}
-      onRestart={() => startGame(room, players)}
+      onRestart={() => { setSeenRole(false); startGame(room, players); }}
       onExit={handleLeave}
       onToLobby={handleToLobby}
     />
@@ -143,6 +169,44 @@ function Centered({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#071821] px-6 text-center text-slate-300">
       <div>{children}</div>
+    </div>
+  );
+}
+
+function CharacterPicker({ role, offers, chosen, onPick }: {
+  role: Player['role'];
+  offers: { id: string; title: string; img: string }[];
+  chosen: string | null;
+  onPick: (id: string) => void;
+}) {
+  if (role === 'ghost') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#071821] px-6 text-center text-slate-300">
+        <p>Призрак ждёт, пока детективы выберут персонажей…</p>
+      </div>
+    );
+  }
+  return (
+    <div className="min-h-screen bg-[#071821] px-6 py-10 text-slate-100">
+      <div className="mx-auto max-w-3xl text-center">
+        <p className="eyebrow text-gold">Выбор персонажа</p>
+        <h1 className="mt-1 text-3xl font-bold">Выберите 1 персонажа на всю партию</h1>
+        <p className="mt-3 text-slate-400">Прочитайте обе карточки и выберите одну. Её способность станет видна всем на столе.</p>
+        {chosen ? (
+          <p className="mt-6 rounded-xl bg-emerald-900/30 px-4 py-3 text-emerald-200">Выбранный персонаж сохраняется. Ожидаем остальных.</p>
+        ) : offers.length === 0 ? (
+          <p className="mt-6 text-slate-400">Нет доступных карточек…</p>
+        ) : (
+          <div className="mt-8 grid gap-6 sm:grid-cols-2">
+            {offers.map((c) => (
+              <button key={c.id} onClick={() => onPick(c.id)} className="group relative overflow-hidden rounded-2xl ring-1 ring-teal-700/40 transition hover:ring-2 hover:ring-teal-400">
+                <img src={c.img} alt={c.title} className="block w-full object-contain" draggable={false} />
+              </button>
+            ))}
+          </div>
+        )}
+        <p className="mt-6 text-sm text-slate-500">Выбранные карты уже заняты и не повторятся у других.</p>
+      </div>
     </div>
   );
 }

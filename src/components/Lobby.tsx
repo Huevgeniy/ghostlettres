@@ -117,9 +117,10 @@ export default function Lobby({ room, players, currentNickname, onStart, onLeave
             </div>
             <p className="mt-2 text-xs text-white/40">Раундов: {settings.rounds}{settings.secretCategory ? ' (тайна: +1)' : ''}</p>
             <Toggle label="Убийца" checked={settings.hasKiller} disabled={!isHost} onChange={(v) => patch({ hasKiller: v })} hint="Выключить — кооператив: призрак сам выбирает истинные улики, нужно угадать все категории." />
+            <Toggle label="Сброс карты роли" checked={settings.discardRole} disabled={!isHost || !settings.hasKiller || settings.playerCount > 6} onChange={(v) => patch({ discardRole: v })} hint="До 6 игроков: случайная карта роли убирается из стопки. Призрак втайне узнаёт, кого нет в игре." />
             <Toggle label="Тайна" checked={settings.secretCategory} disabled={!isHost} onChange={(v) => patch({ secretCategory: v })} hint="Четвёртая категория. Дело раскрыто, если угаданы 4 из 5 пунктов: все 4 улики или 3 улики и убийца. Партия длиннее на 1 раунд." />
             <Toggle label="Дополнительные роли" checked={settings.extraRoles} disabled={!isHost} onChange={(v) => patch({ extraRoles: v })} hint="С 7 игроков: сообщник и свидетель. С 10 — эксперт." />
-            <Toggle label="Персонажи" checked={settings.characters} disabled hint="Скоро. С персонажами в категории по 5 улик." />
+            <Toggle label="Персонажи" checked={settings.characters} disabled={!isHost} onChange={(v) => patch({ characters: v })} hint="С персонажами в каждой категории по 5 улик (иначе 4)." />
             <div className="mt-5 border-t border-white/10 pt-5">
               <Toggle label="Использовать таймеры" checked={settings.timer.enabled} disabled={!isHost} onChange={(v) => timerPatch({ enabled: v })} hint="Автопереход хода, если время вышло." />
               {settings.timer.enabled && (

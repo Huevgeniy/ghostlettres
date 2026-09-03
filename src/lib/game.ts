@@ -7,7 +7,18 @@ export const CATEGORIES: { key: CategoryKey; title: string; hint: string }[] = [
   { key: 'secret', title: 'Тайна', hint: 'Тайна, которую хранит убийца' },
 ];
 
-export type Role = 'ghost' | 'killer' | 'detective' | 'accomplice' | 'witness' | 'expert';
+export type Role = 'ghost' | 'killer' | 'detective' | 'accomplice' | 'witness' | 'expert' | 'blackmailer';
+
+/** Путь к карточке роли в public/roles (русские имена файлов). */
+export const ROLE_IMAGES: Record<Role, string> = {
+  ghost: '/roles/призрак.jpg',
+  killer: '/roles/убийца.jpg',
+  detective: '/roles/детектив.jpg',
+  accomplice: '/roles/сообщник.jpg',
+  witness: '/roles/свидетель.jpg',
+  expert: '/roles/эксперт.jpg',
+  blackmailer: '/roles/шантажист.jpg',
+};
 
 export const ROLE_INFO: Record<Role, { title: string; blurb: string; color: string; public: boolean }> = {
   ghost: {
@@ -46,6 +57,12 @@ export const ROLE_INFO: Record<Role, { title: string; blurb: string; color: stri
     color: '#7eb8e8',
     public: false,
   },
+  blackmailer: {
+    title: 'Шантажист',
+    blurb: 'Знает истинные улики и убийцу.',
+    color: '#e07ad0',
+    public: false,
+  },
 };
 
 export type ClueCard = {
@@ -58,6 +75,7 @@ export type SubmittedClue = {
   playerId: string;
   nickname: string;
   card: ClueCard;
+  card2?: ClueCard; // курьер: вторая отправленная карта
 };
 
 export type TableClue = {
@@ -71,6 +89,7 @@ export type TableClue = {
 
 export type GamePhase =
   | 'lobby'
+  | 'character_choice'
   | 'setup'
   | 'true_choice'
   | 'ghost_opening'
@@ -97,6 +116,7 @@ export type RoomSettings = {
   extraRoles: boolean;
   characters: boolean;
   secretCategory: boolean;
+  discardRole: boolean;
   timer: TimerSettings;
 };
 
@@ -137,7 +157,139 @@ export type Player = {
   hand: ClueCard[];
   submitted_clue: SubmittedClue | null;
   is_ready: boolean;
+  character: string | null;
   joined_at?: string;
+};
+
+export type CharacterInfo = {
+  id: string;
+  title: string;
+  img: string;
+};
+
+// 24 персонажа из public/characters (карточка содержит текст способности).
+// Имена файлов имеют точный регистр (Библиотекарь, Ученый) — указываем их явно.
+export const CHARACTERS: CharacterInfo[] = [
+  ['адвокат', 'Адвокат'], ['актер', 'Актёр'], ['антиквар', 'Антиквар'], ['библиотекарь', 'Библиотекарь'],
+  ['бродяга', 'Бродяга'], ['врач', 'Врач'], ['дезинсектор', 'Дезинсектор'], ['журналист', 'Журналист'],
+  ['игрок', 'Игрок'], ['курьер', 'Курьер'], ['медиум', 'Медиум'], ['официант', 'Официант'],
+  ['охотник', 'Охотник'], ['писатель', 'Писатель'], ['повар', 'Повар'], ['политик', 'Политик'],
+  ['психолог', 'Психолог'], ['специалист', 'Специалист'], ['студент', 'Студент'], ['телеведущий', 'Телеведущий'],
+  ['тренер', 'Тренер'], ['ученый', 'Учёный'], ['хакер', 'Хакер'], ['шериф', 'Шериф'],
+].map(([id, title]) => {
+  const file = id === 'библиотекарь' ? 'Библиотекарь' : id === 'ученый' ? 'Ученый' : id;
+  return { id, title, img: `/characters/${file}.jpg` };
+});
+
+export function randomCharacters(count: number, exclude: string[] = []): CharacterInfo[] {
+  const pool = CHARACTERS.filter((c) => !exclude.includes(c.id));
+  const out: CharacterInfo[] = [];
+  const bag = shuffle(pool);
+  for (let i = 0; i < Math.min(count, bag.length); i++) out.push(bag[i]);
+  return out;
+}
+
+/** Вид способности определяет, кто и как в неё взаимодействует, и что получает игрок. */
+export type AbilityKind =
+  | 'point_clue'        // призрак указывает на улику на поле (игрок её видит)
+  | 'point_category'    // призрак указывает на категорию (жетон)
+  | 'point_number'      // призрак показывает число (пальцами)
+  | 'point_player'      // призрак указывает на игрока
+  | 'point_two_clues'   // призрак указывает на 2 связанные улики
+  | 'show_deck3'        // открыть 3 из колоды, призрак может указать 1, остаток в сброс
+  | 'ghost_from_discard'// медиум: призрак показывает 1 карту из сброса
+  | 'view_discard3'     // спецагент: посмотреть 3 случайные карты из сброса
+  | 'send_deck3'        // повар: посмотреть 3 из колоды и отправить призраку
+  | 'reveal_hand_point' // антиквар: призрак указывает 1 важную карту из руки
+  | 'reveal_hand_left'  // писатель: призрак убирает 3 из руки, добрать
+  | 'trainer'           // тренер: игроки кладут взакрытую, призрак показывает лучшую
+  | 'discard_hand'      // дезинсектор: сбросить часть руки, добрать
+  | 'send_two'          // курьер: отправить 2 карты вместо 1
+  | 'copy_other'        // актёр: скопировать способность другого
+  | 'extra_vote';       // политик: дополнительный голос
+
+export type AbilityTarget = 'category' | 'table_clue' | 'hand_card' | 'player' | 'discard' | 'deck3';
+
+export type AbilityDef = {
+  id: string;          // character id
+  title: string;
+  kind: AbilityKind;
+  // сколько целей выбирает владелец ДО активации (направлен на что)
+  ownerTargets?: AbilityTarget[];
+  // сколько целей выбирает призрак
+  ghostTargets?: AbilityTarget[];
+  maxNumber?: number;
+  description: string;
+};
+
+// Способности персонажей (описания по правилам, реализация общая через движок ниже).
+export const CHARACTER_ABILITIES: Record<string, AbilityDef> = {
+  адвокат: { id: 'адвокат', title: 'Адвокат', kind: 'point_player', ghostTargets: ['player'], description: 'Призрак указывает на игрока, не являющегося убийцей.' },
+  актер: { id: 'актер', title: 'Актёр', kind: 'copy_other', description: 'Скопируйте и примените способность другого персонажа.' },
+  антиквар: { id: 'антиквар', title: 'Антиквар', kind: 'reveal_hand_point', ghostTargets: ['hand_card'], description: 'Тайно покажите руку призраку — он укажет на 1 важную карту (или пропустит).' },
+  библиотекарь: { id: 'библиотекарь', title: 'Библиотекарь', kind: 'point_category', ownerTargets: ['table_clue'], ghostTargets: ['category'], description: 'Укажите на 1 подсказку — призрак укажет жетон связанной категории.' },
+  бродяга: { id: 'бродяга', title: 'Бродяга', kind: 'point_clue', ownerTargets: ['category'], ghostTargets: ['table_clue'], description: 'Выберите категорию «Место» — призрак укажет 1 неистинную улику в ней.' },
+  врач: { id: 'врач', title: 'Врач', kind: 'point_clue', ownerTargets: ['category'], ghostTargets: ['table_clue'], description: 'Выберите категорию «Способ» — призрак укажет 1 неистинную улику в ней.' },
+  дезинсектор: { id: 'дезинсектор', title: 'Дезинсектор', kind: 'discard_hand', description: 'Сбросьте любое число карт с руки и доберите новые.' },
+  журналист: { id: 'журналист', title: 'Журналист', kind: 'point_category', ghostTargets: ['category'], description: 'Призрак указывает на жетон категории, требующей особого внимания.' },
+  игрок: { id: 'игрок', title: 'Игрок', kind: 'show_deck3', ghostTargets: ['deck3'], description: 'Откройте 3 карты из колоды — призрак можешь указать на 1 (или ни на одну), затем все сбрасываются.' },
+  курьер: { id: 'курьер', title: 'Курьер', kind: 'send_two', description: 'Можете отправить призраку сразу 2 карты вместо 1.' },
+  медиум: { id: 'медиум', title: 'Медиум', kind: 'ghost_from_discard', ghostTargets: ['discard'], description: 'Призрак показывает вам 1 карту из сброса по своему выбору.' },
+  официант: { id: 'официант', title: 'Официант', kind: 'point_clue', ownerTargets: ['category'], ghostTargets: ['table_clue'], description: 'Выберите категорию «Мотив» — призрак укажет 1 неистинную улику.' },
+  охотник: { id: 'охотник', title: 'Охотник', kind: 'point_two_clues', ghostTargets: ['table_clue'], description: 'Призрак показывает на 2 связанные между собой подсказки.' },
+  писатель: { id: 'писатель', title: 'Писатель', kind: 'reveal_hand_left', ghostTargets: ['hand_card'], description: 'Тайно покажите руку призраку — он уберёт 3 в сброс, затем доберите 3.' },
+  повар: { id: 'повар', title: 'Повар', kind: 'send_deck3', description: 'Посмотрите 3 из колоды и отправьте их призраку вместо 1.' },
+  политик: { id: 'политик', title: 'Политик', kind: 'extra_vote', description: 'После одного из голосований добавьте ещё 1 голос за любой вариант.' },
+  психолог: { id: 'психолог', title: 'Психолог', kind: 'point_number', ghostTargets: ['category'], maxNumber: 12, description: 'Призрак показывает на пальцах, сколько игроков соврали в этом раунде.' },
+  специалист: { id: 'специалист', title: 'Спецагент', kind: 'view_discard3', description: 'Посмотреть 3 случайные карты из сброса тайно.' },
+  студент: { id: 'студент', title: 'Студент', kind: 'point_clue', ghostTargets: ['table_clue'], description: 'Призрак показывает 1 неверно понятую подсказку.' },
+  телеведущий: { id: 'телеведущий', title: 'Телеведущий', kind: 'point_clue', ghostTargets: ['table_clue'], description: 'Призрак показывает на особенно важную подсказку.' },
+  тренер: { id: 'тренер', title: 'Тренер', kind: 'trainer', ownerTargets: ['player'], description: 'До 3 игроков кладут по 1 карте взакрытую, призрак показывает лучшую (в сброс).' },
+  ученый: { id: 'ученый', title: 'Учёный', kind: 'point_clue', ownerTargets: ['category'], ghostTargets: ['table_clue'], description: 'Выберите категорию — призрак укажет связанную с истиной улику (или покажет «нет»).' },
+  хакер: { id: 'хакер', title: 'Хакер', kind: 'point_clue', ownerTargets: ['table_clue'], ghostTargets: ['table_clue'], description: 'Укажите на подсказку — призрак укажет все связанные с ней (если есть).' },
+  шериф: { id: 'шериф', title: 'Шериф', kind: 'point_number', ownerTargets: ['category'], ghostTargets: ['category'], maxNumber: 12, description: 'Выберите категорию — призрак покажет на пальцах, сколько подсказок с ней связано.' },
+};
+
+/** Активная способность: кем активирована, какой доп. шаг, и куда сохраняется результат. */
+export type AbilityState = {
+  ownerId: string;
+  characterId: string;
+  kind: AbilityKind;
+  step:
+    | 'owner_target'      // владелец выбирает цель (категория/улика/игла/игроки)
+    | 'ghost_action'      // действует призрак
+    | 'ghost_skip'        // призрак может пропустить (игрок/антиквар)
+    | 'reveal_pick'       // карты из колоды открыты всем (игрок), ghost может указать 1
+    | 'owner_discard'     // владелец выбирает, что сбросить из руки (дезинсектор)
+    | 'send_to_ghost'     // владелец отправляет карты призраку (повар)
+    | 'player_submit'     // выбранные игроки кладут карту взакрытую (тренер)
+    | 'copy_pick'         // актёр выбирает, чью способность скопировать
+    | 'extra_vote'        // политик добавляет голос
+    | 'owner_view';       // владелец видит результат
+  // выбор владельца (категория/улика/игла)
+  ownerChoice?: string;
+  // карты из колоды/сброса/руки, открытые приватно (кто видит — см. revealTo)
+  revealed?: ClueCard[];
+  // кому видно revealed: 'owner' | 'owner_ghost' | 'ghost'
+  revealTo?: 'owner' | 'owner_ghost' | 'ghost';
+  // выбранные призраком улики/карты/игроки (id)
+  ghostPicks?: string[];
+  // результат-число (психолог/шериф)
+  resultNumber?: number;
+  // из какой фазы возобновиться после завершения
+  resumePhase?: GamePhase;
+  // для copy_other — id скопированной способности
+  copiedId?: string;
+  // для тренера — выбранные игроки
+  pickedPlayers?: string[];
+  // id карт, которые уже сбросили/отправили (для идемпотентности)
+  done?: string[];
+  // карты руки владельца, показанные призраку (reveal_hand)
+  handRevealed?: ClueCard[];
+  // для писателя — карты, которые призрак отправил в сброс
+  toDiscard?: ClueCard[];
+  // для тренера — подложенные игроками карты
+  copies?: { playerId: string; card: ClueCard }[];
 };
 
 export type RoomGameState = {
@@ -161,8 +313,13 @@ export type RoomGameState = {
   voteScope?: CategoryKey[];
   voteScopeKiller?: boolean;
   voteDecided?: Partial<Record<CategoryKey | 'killer', string | null>>;
+  politicianExtra?: Partial<Record<CategoryKey, string>>; // политик: доп. голоса
   winners?: 'detectives' | 'killer' | null;
   resultSummary?: ResultSummary | null;
+  charOffers?: Record<string, CharacterInfo[]>;
+  discardedRole?: Role | null;
+  ability?: AbilityState | null;
+  usedAbilities?: string[]; // characterIds, способности в один раз за партию
   events?: GameEvent[];
 };
 
@@ -273,6 +430,7 @@ export function defaultSettings(playerCount = 4): RoomSettings {
     extraRoles: false,
     characters: false,
     secretCategory: false,
+    discardRole: false,
     timer: DEFAULT_TIMER,
   };
 }
@@ -391,24 +549,30 @@ export function evaluateCase(room: Room, players: Player[], tally: TallyResult):
     };
   });
 
-  const killerCorrect = room.settings.hasKiller
-    ? !!killer && tally.killerId === killer.id
-    : tally.killerId === players.find((p) => p.role === 'ghost')?.id;
+  // Сброшенная роль убийцы: убийцы нет в игре — решает успех только количество угаданных улик.
+  const noKiller = room.settings.hasKiller && !killer;
+  const killerCorrect = noKiller
+    ? false
+    : room.settings.hasKiller
+      ? !!killer && tally.killerId === killer.id
+      : tally.killerId === players.find((p) => p.role === 'ghost')?.id;
 
   const neededClues = cats.length;
-  const caseSolved = room.settings.hasKiller
-    ? clueCorrect === neededClues || (clueCorrect >= neededClues - 1 && killerCorrect)
-    : clueCorrect === neededClues;
+  const caseSolved = noKiller
+    ? clueCorrect === neededClues
+    : room.settings.hasKiller
+      ? clueCorrect === neededClues || (clueCorrect >= neededClues - 1 && killerCorrect)
+      : clueCorrect === neededClues;
 
   return {
     clues,
     killer: {
       correct: killerCorrect,
       chosenId: tally.killerId,
-      trueId: room.settings.hasKiller ? killer?.id ?? null : players.find((p) => p.role === 'ghost')?.id ?? null,
+      trueId: noKiller ? null : room.settings.hasKiller ? killer?.id ?? null : players.find((p) => p.role === 'ghost')?.id ?? null,
     },
-    guessed: room.settings.hasKiller ? clueCorrect + (killerCorrect ? 1 : 0) : clueCorrect,
-    total: room.settings.hasKiller ? neededClues + 1 : neededClues,
+    guessed: noKiller || !room.settings.hasKiller ? clueCorrect : clueCorrect + (killerCorrect ? 1 : 0),
+    total: noKiller ? neededClues : room.settings.hasKiller ? neededClues + 1 : neededClues,
     caseSolved,
     winners: caseSolved ? 'detectives' : 'killer',
   };
