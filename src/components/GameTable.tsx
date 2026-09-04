@@ -30,6 +30,7 @@ type Props = {
   onAdvance: () => void;
   onLockVote: (picks: Partial<Record<CategoryKey, string>>, killerId: string | null) => void;
   onRevealTruth: () => void;
+  onEndGame: () => void;
   onPoliticianExtraVote: (category: CategoryKey, clueId: string) => void;
   onActivateAbility: (playerId: string) => void;
   onCancelAbility: (playerId: string) => void;
@@ -310,10 +311,22 @@ export default function GameTable(props: Props) {
               <div className="panel p-4 text-xs text-white/70">
                 <p className="eyebrow mb-2">Кто как проголосовал</p>
                 {Object.values(room.state.ballots ?? {}).map((b) => (
-                  <p key={b.playerId} className="mb-1">
-                    {b.nickname}: {cats.map((c) => table.find((t) => t.id === b.picks[c.key])?.card.label ?? '—').join(' / ')}
-                    {room.settings.hasKiller ? ` → ${players.find((p) => p.id === b.killerId)?.nickname ?? '—'}` : ''}
-                  </p>
+                  <div key={b.playerId} className="mb-2 flex items-center gap-2">
+                    <span className="font-semibold">{b.nickname}:</span>
+                    <div className="flex gap-1">
+                      {cats.map((c) => {
+                        const t = table.find((item) => item.id === b.picks[c.key]);
+                        return t ? (
+                          <button key={t.id} onClick={() => setZoom({ card: t.card, note: t.note })} className="h-8 w-6 overflow-hidden rounded border border-white/20">
+                            <img src={t.card.img} alt={t.card.label} className="h-full w-full object-cover" />
+                          </button>
+                        ) : null;
+                      })}
+                    </div>
+                    {room.settings.hasKiller && (
+                      <span className="ml-1">→ {players.find((p) => p.id === b.killerId)?.nickname ?? '—'}</span>
+                    )}
+                  </div>
                 ))}
               </div>
             )}
@@ -715,11 +728,14 @@ function AbilityPanel({ room, players, me, table, cats, truth, onOwnerPick, onGh
   // ===== МЕДИУМ (призрак показывает 1 из сброса) =====
   if (ab.kind === 'ghost_from_discard') {
     if (isGhost && ab.step === 'ghost_action') {
+      const allAvailable = [...(room.state.discard ?? []), ...(room.state.vanished ?? [])];
       return (
         <div className="panel mt-5 p-4">
-          <p className="font-semibold text-rose-200">{def.title}: укажите 1 карту из сброса для {players.find((p) => p.id === ab.ownerId)?.nickname}.</p>
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {(room.state.discard ?? []).map((c) => <button key={c.id} className="chip" onClick={() => onGhostPick([c.id])}>{c.label}</button>)}
+          <p className="font-semibold text-rose-200">{def.title}: укажите 1 карту для {players.find((p) => p.id === ab.ownerId)?.nickname}.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {allAvailable.map((c) => (
+              <ClueFace key={c.id} card={c} className="clue-hint" onClick={() => onGhostPick([c.id])} />
+            ))}
           </div>
           <button className="btn-ghost mt-3" onClick={onCancel}>Отмена</button>
         </div>

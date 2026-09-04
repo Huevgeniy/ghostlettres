@@ -201,6 +201,12 @@ button { cursor: pointer; }
 .role-card-mini img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .role-card-zoom-img { max-width: min(30rem, 88vw); width: 100%; border-radius: 1rem; box-shadow: 0 20px 60px rgba(0,0,0,.6); }
 
+.glow-highlight {
+  box-shadow: 0 0 15px 5px rgba(16, 185, 129, 0.4);
+  border-color: rgba(16, 185, 129, 0.8) !important;
+  transition: all 0.3s ease;
+}
+
 .zoom-card { position: relative; display: flex; flex-direction: column; align-items: center; gap: .75rem; }
 .zoom-close {
   position: absolute; top: .4rem; right: .4rem; color: rgba(255,255,255,.7);

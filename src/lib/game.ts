@@ -111,6 +111,7 @@ export type TimerSettings = {
 
 export type RoomSettings = {
   rounds: number;
+  maxRounds: number;
   playerCount: number;
   hasKiller: boolean;
   extraRoles: boolean;
@@ -425,6 +426,7 @@ export const DEFAULT_TIMER: TimerSettings = {
 export function defaultSettings(playerCount = 4): RoomSettings {
   return {
     rounds: roundsForPlayers(playerCount, false),
+    maxRounds: 5,
     playerCount,
     hasKiller: true,
     extraRoles: false,
