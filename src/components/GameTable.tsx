@@ -170,7 +170,10 @@ export default function GameTable(props: Props) {
             </div>
             <div className="flex items-center gap-2">
               {me.nickname === room.host_name && (
-                <button onClick={props.onToLobby} className="btn-ghost"><Settings2 size={16} /> В лобби</button>
+                <>
+                  <button onClick={props.onToLobby} className="btn-ghost"><Settings2 size={16} /> В лобби</button>
+                  <button onClick={props.onEndGame} className="btn-ghost text-rose-400"><X size={16} /> Закончить игру</button>
+                </>
               )}
               <button onClick={props.onExit} className="btn-ghost"><LogOut size={16} /> Выйти</button>
             </div>

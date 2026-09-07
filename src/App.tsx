@@ -157,6 +157,7 @@ export default function App() {
       onRestart={() => { setSeenRole(false); startGame(room, players); }}
       onExit={handleLeave}
       onToLobby={handleToLobby}
+      onEndGame={() => console.log('End game triggered')}
     />
   );
 }
