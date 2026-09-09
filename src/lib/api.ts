@@ -103,6 +103,10 @@ export async function lockBallot(roomId: string, playerId: string, picks: Ballot
   action('lockBallot', { roomId, playerId, picks, killerId });
 }
 
+export async function finishVoteEarly(roomId: string) {
+  action('finishVoteEarly', { roomId });
+}
+
 export async function revealTruth(roomId: string) {
   action('revealTruth', { roomId });
 }

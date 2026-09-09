@@ -309,13 +309,19 @@ export function activateAbility(agg: RoomAgg, playerId: string): RoomAgg {
     return agg;
   }
   if (def.kind === 'send_deck3') {
-    // Повар: посмотреть 3 карты из колоды и отправить призраку
+    // Повар: посмотреть 3 карты из колоды и автоматически отправить все призраку
     const drawn = takeCards(room.state, 3);
     room.state = { 
       ...room.state, 
-      ability: { ...base, step: 'send_to_ghost', revealTo: 'owner', revealed: drawn.cards, done: [] }, 
-      deck: drawn.state.deck 
+      ability: { ...base, step: 'auto_send', revealTo: 'owner', revealed: drawn.cards, done: [] }, 
+      deck: drawn.state.deck,
+      hints: [...(room.state.hints ?? []), ...drawn.cards],
+      events: addEvent(room.state, `${me.nickname} (Повар) посмотрел 3 карты из колоды и отправил их призраку.`)
     };
+    // Сразу помечаем способность как использованную, чтобы игрок не мог отправить другую карту
+    const usedList = new Set(room.state.usedAbilities ?? []);
+    usedList.add('повар');
+    room.state.usedAbilities = [...usedList];
     return agg;
   }
   if (def.kind === 'view_discard3') {
@@ -353,10 +359,12 @@ export function cancelAbility(agg: RoomAgg, playerId: string): RoomAgg {
   const ab = room.state.ability;
   if (!ab || ab.ownerId !== playerId) return agg;
   let state: Room['state'] = { ...room.state, ability: null };
-  if (ab.kind === 'show_deck3' || ab.kind === 'send_deck3') {
+  if (ab.kind === 'show_deck3') {
+    // show_deck3: карты идут в сброс при отмене
     const returned = ab.revealed ?? [];
     state = { ...state, discard: [...(state.discard ?? []), ...returned] };
   }
+  // send_deck3: карты уже отправлены призраку, отмена невозможна
   if (ab.characterId === 'актер') {
     state.usedAbilities = (state.usedAbilities ?? []).filter((c) => c !== ab.characterId);
   }
@@ -412,19 +420,8 @@ export function abilitySendToGhost(agg: RoomAgg, playerId: string, ids: string[]
   const { room } = agg;
   const ab = room.state.ability;
   const me = getPlayer(agg, playerId);
-  if (!ab || ab.ownerId !== playerId || ab.kind !== 'send_deck3' || ab.step !== 'send_to_ghost' || !me) return agg;
-  // Повар: отправить выбранные карты призраку (в hints), остальные в сброс
-  const toSend = (ab.revealed ?? []).filter((c) => ids.includes(c.id));
-  const toDiscard = (ab.revealed ?? []).filter((c) => !ids.includes(c.id));
-  let state: Room['state'] = { ...room.state, discard: [...(room.state.discard ?? []), ...toDiscard] };
-  state.hints = [...(state.hints ?? []), ...toSend];
-  // Помечаем как использованную способность и завершаем - НЕ возвращаемся в предыдущую фазу, а остаемся в текущей
-  const usedList = new Set(state.usedAbilities ?? []);
-  if (me.character) usedList.add(me.character);
-  state = { ...state, ability: null, usedAbilities: [...usedList], events: addEvent(state, `${me.nickname} (Повар) отправил призраку ${toSend.length} карты(ы) из колоды.`) };
-  room.state = state;
-  // Не вызываем abilityFinish, чтобы не возвращаться в submit, а просто завершить способность
-  // Игрок должен продолжить обычный ход (отправить карту призраку если еще не отправил)
+  // Функция больше не используется для send_deck3, так как карты отправляются автоматически
+  if (!ab || ab.kind !== 'send_deck3' || !me) return agg;
   return agg;
 }
 
@@ -612,7 +609,9 @@ export function chooseTrueClues(agg: RoomAgg, choices: Record<string, string>, c
   }
   let state: Room['state'] = { ...room.state, trueChoices: choices };
   for (const p of players) {
-    const filled = refillHand({ ...p, hand: [] }, state, 5);
+    // Призрак получает только 1 карту за раунд вместо 5
+    const handSize = p.role === 'ghost' ? 1 : 5;
+    const filled = refillHand({ ...p, hand: [] }, state, handSize);
     state = filled.state;
     p.hand = filled.player.hand;
     p.submitted_clue = null;
@@ -628,7 +627,8 @@ export function ghostOpening(agg: RoomAgg, card: ClueCard | null): RoomAgg {
   const ghost = players.find((p) => p.role === 'ghost');
   if (card && ghost) {
     const hand = ghost.hand.filter((c) => c.id !== card.id);
-    const filled = refillHand({ ...ghost, hand }, state, 5);
+    // Призрак получает только 1 карту за раунд вместо 5
+    const filled = refillHand({ ...ghost, hand }, state, 1);
     state = filled.state;
     ghost.hand = filled.player.hand;
     state.hints = [...(state.hints ?? []), card];
@@ -723,7 +723,9 @@ export function discardAndRefill(agg: RoomAgg, player: Player, discardCardId: st
       state = { ...state, discard: [...(state.discard ?? []), card] };
     }
   }
-  const filled = refillHand({ ...me, hand }, state, 5);
+  // Призрак получает только 1 карту за раунд вместо 5
+  const handSize = me.role === 'ghost' ? 1 : 5;
+  const filled = refillHand({ ...me, hand }, state, handSize);
   me.hand = filled.player.hand;
   state = filled.state;
   const refreshedIds = [...(state.refreshedIds ?? []), id];
@@ -803,6 +805,7 @@ export function lockBallot(agg: RoomAgg, playerId: string, picks: Ballot['picks'
   const { room, players } = agg;
   const ballots = { ...(room.state.ballots ?? {}) };
   if (!ballots[playerId] || ballots[playerId].locked) return agg;
+  // Убийца может голосовать, но не может голосовать сам за себя
   if (killerId && killerId === playerId) return agg;
   const allCats = activeCategories(room.settings);
   const scopeKeys = room.state.voteScope && room.state.voteScope.length ? room.state.voteScope : allCats.map((c) => c.key);
@@ -820,6 +823,23 @@ export function lockBallot(agg: RoomAgg, playerId: string, picks: Ballot['picks'
     room.state = state;
     return agg;
   }
+  const r = resolveVote(agg, state, players);
+  room.phase = r.phase;
+  room.state = r.state;
+  return agg;
+}
+
+export function finishVoteEarly(agg: RoomAgg): RoomAgg {
+  const { room, players } = agg;
+  if (room.phase !== 'voting') return agg;
+  const ballots = { ...(room.state.ballots ?? {}) };
+  // Заблокировать все незаблокированные бюллетени
+  Object.keys(ballots).forEach((id) => {
+    if (!ballots[id].locked) {
+      ballots[id] = { ...ballots[id], locked: true };
+    }
+  });
+  const state = { ...room.state, ballots, events: addEvent(room.state, 'Голосование завершено досрочно.') };
   const r = resolveVote(agg, state, players);
   room.phase = r.phase;
   room.state = r.state;

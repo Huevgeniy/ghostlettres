@@ -29,6 +29,7 @@ type Props = {
   onPassSpeech: () => void;
   onAdvance: () => void;
   onLockVote: (picks: Partial<Record<CategoryKey, string>>, killerId: string | null) => void;
+  onFinishVoteEarly: () => void;
   onRevealTruth: () => void;
   onEndGame: () => void;
   onPoliticianExtraVote: (category: CategoryKey, clueId: string) => void;
@@ -66,7 +67,7 @@ export default function GameTable(props: Props) {
     ? cats.filter((c) => room.state.voteScope!.includes(c.key))
     : cats) as typeof cats;
   const needKiller = room.settings.hasKiller && !(room.state.voteScopeKiller === false);
-  const suspects = players.filter((p) => p.id !== me.id && p.role !== 'ghost');
+  const suspects = players.filter((p) => p.role !== 'ghost' && (me.role !== 'killer' || p.id !== me.id));
   const round = room.state.round ?? 0;
   const totalRounds = room.settings.rounds;
   const [zoom, setZoom] = useState<{ card: ClueCard; note?: string } | null>(null);
@@ -532,13 +533,21 @@ export default function GameTable(props: Props) {
                     </button>
                   </div>
                 )}
-                <button
-                  className="btn-primary mt-4"
-                  disabled={voteCats.some((c) => !votePicks[c.key]) || (needKiller && !voteKiller)}
-                  onClick={() => props.onLockVote(votePicks, voteKiller)}
-                >
-                  <Vote size={16} /> Проголосовать
-                </button>
+                <div className="mt-4 flex gap-2">
+                  <button
+                    className="btn-primary"
+                    disabled={voteCats.some((c) => !votePicks[c.key]) || (needKiller && !voteKiller)}
+                    onClick={() => props.onLockVote(votePicks, voteKiller)}
+                  >
+                    <Vote size={16} /> Проголосовать
+                  </button>
+                  <button
+                    className="btn-secondary"
+                    onClick={() => props.onFinishVoteEarly()}
+                  >
+                    <SkipForward size={16} /> Завершить голосование досрочно
+                  </button>
+                </div>
               </>
             )}
           </div>
@@ -699,25 +708,24 @@ function AbilityPanel({ room, players, me, table, cats, truth, onOwnerPick, onGh
     return null;
   }
 
-  // ===== ПОВАР: открыть 3 и отправить призраку (вместо 1) =====
+  // ===== ПОВАР: открыть 3 и автоматически отправить призраку (вместо 1) =====
   if (ab.kind === 'send_deck3') {
-    if (isOwner && ab.step === 'send_to_ghost') {
+    if (isOwner && ab.step === 'auto_send') {
       return (
         <div className="panel mt-5 p-4">
           <p className="font-semibold text-cyan">{def.title}: {def.description}</p>
+          <p className="mt-2 text-sm text-white/70">Вы посмотрели 3 карты из колоды и автоматически отправили их призраку.</p>
           <div className="mt-3 flex flex-wrap gap-2">
             {(ab.revealed ?? []).map((c) => (
               <ClueFace 
                 key={c.id} 
                 card={c} 
-                className={`clue-hand ${sel.includes(c.id) ? 'ring-2 ring-rose-300' : ''}`} 
-                onClick={() => setSel(sel.includes(c.id) ? sel.filter((x) => x !== c.id) : [...sel, c.id])}
+                className="clue-hand" 
                 onZoom={() => setZoom({ card: c })}
               />
             ))}
           </div>
-          <button className="btn-primary mt-4" disabled={sel.length === 0} onClick={() => onSendToGhost(sel)}>Отправить призраку</button>
-          <button className="btn-ghost mt-3 ml-2" onClick={onCancel}>Отмена</button>
+          <button className="btn-primary mt-4" onClick={onFinish}>Понятно</button>
         </div>
       );
     }
