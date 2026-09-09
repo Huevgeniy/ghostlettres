@@ -11,7 +11,7 @@ import {
   resetToLobby, setReady, chooseCharacter,
   activateAbility, cancelAbility, abilityOwnerPick, abilityGhostPick, abilityGhostNumber, abilityFinish,
   abilityCopy, abilityOwnerDiscard, abilitySendToGhost, abilityPlayerSubmit, abilityGhostSkip,
-  politicianExtraVote,
+  politicianExtraVote, finishVoteEarly,
 } from '@/lib/api';
 import { type Player } from '@/lib/game';
 import { clearSession, loadSession, saveSession, sessionFromPlayer } from '@/lib/session';
@@ -146,6 +146,7 @@ export default function App() {
       onPassSpeech={() => passSpeech(room.id)}
       onAdvance={() => startNextRoundOrVote(room.id)}
       onLockVote={(picks, killerId) => lockBallot(room.id, me.id, picks, killerId)}
+      onFinishVoteEarly={() => finishVoteEarly(room.id)}
       onRevealTruth={() => revealTruth(room.id)}
       onActivateAbility={(playerId) => room && activateAbility(room.id, playerId)}
       onCancelAbility={(playerId) => room && cancelAbility(room.id, playerId)}

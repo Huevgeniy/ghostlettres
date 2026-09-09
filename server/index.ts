@@ -287,6 +287,11 @@ wss.on('connection', (rawWs) => {
           run(lockBallot(agg, msg.playerId, msg.picks ?? {}, msg.killerId ?? null), ws);
           break;
         }
+        case 'finishVoteEarly': {
+          const agg = requireAgg(msg.roomId, ws);
+          run(finishVoteEarly(agg), ws);
+          break;
+        }
         case 'revealTruth': {
           const agg = requireAgg(msg.roomId, ws);
           run(revealTruth(agg), ws);
