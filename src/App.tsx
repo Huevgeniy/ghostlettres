@@ -75,6 +75,12 @@ export default function App() {
     setSeenRole(false);
   }
 
+  async function handleEndGame() {
+    if (!room) return;
+    await resetToLobby(room.id);
+    setSeenRole(false);
+  }
+
   if (!roomId) return <Home onEnter={enter} />;
   if (loading || !room) return <Centered>Загрузка комнаты…</Centered>;
   if (error) {
@@ -157,7 +163,7 @@ export default function App() {
       onRestart={() => { setSeenRole(false); startGame(room, players); }}
       onExit={handleLeave}
       onToLobby={handleToLobby}
-      onEndGame={() => console.log('End game triggered')}
+      onEndGame={handleEndGame}
     />
   );
 }

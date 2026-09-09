@@ -119,6 +119,7 @@ export type RoomSettings = {
   secretCategory: boolean;
   discardRole: boolean;
   timer: TimerSettings;
+  customRounds?: boolean; // флаг ручного выбора раундов
 };
 
 export type Ballot = {
@@ -425,8 +426,8 @@ export const DEFAULT_TIMER: TimerSettings = {
 
 export function defaultSettings(playerCount = 4): RoomSettings {
   return {
-    rounds: roundsForPlayers(playerCount, false),
-    maxRounds: 5,
+    rounds: 3, // default starting value, can be customized
+    maxRounds: 7,
     playerCount,
     hasKiller: true,
     extraRoles: false,
@@ -434,6 +435,7 @@ export function defaultSettings(playerCount = 4): RoomSettings {
     secretCategory: false,
     discardRole: false,
     timer: DEFAULT_TIMER,
+    customRounds: false,
   };
 }
 

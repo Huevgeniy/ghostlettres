@@ -66,7 +66,7 @@ export default function GameTable(props: Props) {
     ? cats.filter((c) => room.state.voteScope!.includes(c.key))
     : cats) as typeof cats;
   const needKiller = room.settings.hasKiller && !(room.state.voteScopeKiller === false);
-  const suspects = players.filter((p) => p.id !== me.id);
+  const suspects = players.filter((p) => p.id !== me.id && p.role !== 'ghost');
   const round = room.state.round ?? 0;
   const totalRounds = room.settings.rounds;
   const [zoom, setZoom] = useState<{ card: ClueCard; note?: string } | null>(null);
@@ -503,7 +503,7 @@ export default function GameTable(props: Props) {
                   <div className="mt-3 flex flex-wrap gap-2">
                     {suspects.map((p) => (
                       <button key={p.id} onClick={() => setVoteKiller(p.id)} className={`chip ${voteKiller === p.id ? 'chip-active' : ''}`}>
-                        {p.nickname}{p.role === 'ghost' ? ' (призрак / нет убийцы)' : ''}
+                        {p.nickname}
                       </button>
                     ))}
                   </div>
@@ -563,7 +563,7 @@ export default function GameTable(props: Props) {
             </p>
             <div className="mt-4 flex justify-center gap-3">
               <button className="btn-primary" onClick={props.onRestart}>Новая партия</button>
-              <button className="btn-ghost" onClick={props.onExit}>Выйти</button>
+              <button className="btn-ghost" onClick={props.onToLobby}>В лобби</button>
             </div>
           </div>
         )}
@@ -706,7 +706,15 @@ function AbilityPanel({ room, players, me, table, cats, truth, onOwnerPick, onGh
         <div className="panel mt-5 p-4">
           <p className="font-semibold text-cyan">{def.title}: {def.description}</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            {(ab.revealed ?? []).map((c) => <ClueFace key={c.id} card={c} className={`clue-hand ${sel.includes(c.id) ? 'ring-2 ring-rose-300' : ''}`} onClick={() => setSel(sel.includes(c.id) ? sel.filter((x) => x !== c.id) : [...sel, c.id])} />)}
+            {(ab.revealed ?? []).map((c) => (
+              <ClueFace 
+                key={c.id} 
+                card={c} 
+                className={`clue-hand ${sel.includes(c.id) ? 'ring-2 ring-rose-300' : ''}`} 
+                onClick={() => setSel(sel.includes(c.id) ? sel.filter((x) => x !== c.id) : [...sel, c.id])}
+                onZoom={() => setZoom({ card: c })}
+              />
+            ))}
           </div>
           <button className="btn-primary mt-4" disabled={sel.length === 0} onClick={() => onSendToGhost(sel)}>Отправить призраку</button>
           <button className="btn-ghost mt-3 ml-2" onClick={onCancel}>Отмена</button>
@@ -921,6 +929,17 @@ function AbilityPanel({ room, players, me, table, cats, truth, onOwnerPick, onGh
   // ===== Оператора: фаза owner_view (просмотр результата) =====
   if (isOwner && ab.step === 'owner_view') {
     const ghostPicks = ab.ghostPicks ?? [];
+    // Специальная обработка для point_player (Адвокат) - показываем выбранного игрока
+    if (def.kind === 'point_player' && ab.ownerChoice) {
+      const chosenPlayer = players.find((p) => p.id === ab.ownerChoice);
+      return (
+        <div className="panel mt-5 p-4">
+          <p className="font-semibold text-cyan">Результат способности «{def.title}»</p>
+          <p className="mt-3 text-lg text-white">Призрак указал, что игрок <b className="text-gold">{chosenPlayer?.nickname}</b> не является убийцей.</p>
+          <button className="btn-primary mt-4" onClick={onFinish}>Понятно</button>
+        </div>
+      );
+    }
     return (
       <div className="panel mt-5 p-4">
         <p className="font-semibold text-cyan">Результат способности «{def.title}»</p>

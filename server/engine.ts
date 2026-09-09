@@ -285,8 +285,14 @@ export function activateAbility(agg: RoomAgg, playerId: string): RoomAgg {
     pickedPlayers: [],
   };
 
-  if (def.kind === 'send_two' || def.kind === 'extra_vote') {
-    room.state = { ...room.state, usedAbilities: [...(room.state.usedAbilities ?? []), def.id], events: addEvent(room.state, `${me.nickname} (${def.title}) готов использовать способность.`) };
+  if (def.kind === 'send_two') {
+    // Курьер: просто помечаем как использованную способность, логика отправки 2 карт обрабатывается в submitClue
+    room.state = { ...room.state, usedAbilities: [...(room.state.usedAbilities ?? []), def.id], events: addEvent(room.state, `${me.nickname} (${def.title}) готов отправить 2 улики.`) };
+    return agg;
+  }
+  if (def.kind === 'extra_vote') {
+    // Политик: дополнительный голос используется во время голосования
+    room.state = { ...room.state, usedAbilities: [...(room.state.usedAbilities ?? []), def.id], events: addEvent(room.state, `${me.nickname} (${def.title}) готов использовать дополнительный голос.`) };
     return agg;
   }
   if (def.kind === 'discard_hand') {
@@ -303,8 +309,13 @@ export function activateAbility(agg: RoomAgg, playerId: string): RoomAgg {
     return agg;
   }
   if (def.kind === 'send_deck3') {
+    // Повар: посмотреть 3 карты из колоды и отправить призраку
     const drawn = takeCards(room.state, 3);
-    room.state = { ...room.state, ability: { ...base, step: 'send_to_ghost', revealTo: 'owner', revealed: drawn.cards }, deck: drawn.state.deck };
+    room.state = { 
+      ...room.state, 
+      ability: { ...base, step: 'send_to_ghost', revealTo: 'owner', revealed: drawn.cards, done: [] }, 
+      deck: drawn.state.deck 
+    };
     return agg;
   }
   if (def.kind === 'view_discard3') {
@@ -313,12 +324,19 @@ export function activateAbility(agg: RoomAgg, playerId: string): RoomAgg {
     return agg;
   }
   if (def.kind === 'ghost_from_discard') {
-    const discardPool = (room.state.discard ?? []).map((c) => c.id);
+    // Медиум: призрак выбирает из объединенного пула сброса и исчезнувших карт
+    const discardPool = [...(room.state.discard ?? []), ...(room.state.vanished ?? [])].map((c) => c.id);
     room.state = { ...room.state, ability: { ...base, step: 'ghost_action', revealTo: 'ghost', done: discardPool } };
     return agg;
   }
   if (def.kind === 'reveal_hand_left' || def.kind === 'reveal_hand_point') {
     room.state = { ...room.state, ability: { ...base, step: 'ghost_action', revealTo: 'ghost', handRevealed: me.hand, done: me.hand.map((c) => c.id) } };
+    return agg;
+  }
+  if (def.kind === 'point_player') {
+    // Адвокат: призрак выбирает игрока, который не является убийцей
+    const nonKillerPlayers = players.filter((p) => p.role !== 'killer').map((p) => p.id);
+    room.state = { ...room.state, ability: { ...base, step: 'ghost_action', revealTo: 'owner', done: nonKillerPlayers } };
     return agg;
   }
   if (def.kind === 'trainer') {
@@ -395,13 +413,19 @@ export function abilitySendToGhost(agg: RoomAgg, playerId: string, ids: string[]
   const ab = room.state.ability;
   const me = getPlayer(agg, playerId);
   if (!ab || ab.ownerId !== playerId || ab.kind !== 'send_deck3' || ab.step !== 'send_to_ghost' || !me) return agg;
+  // Повар: отправить выбранные карты призраку (в hints), остальные в сброс
   const toSend = (ab.revealed ?? []).filter((c) => ids.includes(c.id));
   const toDiscard = (ab.revealed ?? []).filter((c) => !ids.includes(c.id));
   let state: Room['state'] = { ...room.state, discard: [...(room.state.discard ?? []), ...toDiscard] };
   state.hints = [...(state.hints ?? []), ...toSend];
-  state.events = addEvent(state, `${me.nickname} (Повар) отправил призраку карты из колоды.`);
-  room.state = { ...state, ability: null };
-  return abilityFinish(agg, playerId);
+  // Помечаем как использованную способность и завершаем - НЕ возвращаемся в предыдущую фазу, а остаемся в текущей
+  const usedList = new Set(state.usedAbilities ?? []);
+  if (me.character) usedList.add(me.character);
+  state = { ...state, ability: null, usedAbilities: [...usedList], events: addEvent(state, `${me.nickname} (Повар) отправил призраку ${toSend.length} карты(ы) из колоды.`) };
+  room.state = state;
+  // Не вызываем abilityFinish, чтобы не возвращаться в submit, а просто завершить способность
+  // Игрок должен продолжить обычный ход (отправить карту призраку если еще не отправил)
+  return agg;
 }
 
 export function abilityPlayerSubmit(agg: RoomAgg, playerId: string, cardId: string): RoomAgg {
@@ -437,7 +461,9 @@ export function abilityGhostPick(agg: RoomAgg, playerId: string, picks: string[]
     return agg;
   }
   if (ab.kind === 'ghost_from_discard') {
-    const pick = (room.state.discard ?? []).find((c) => c.id === picks[0]) ?? null;
+    // Медиум: поиск карты в объединенном пуле сброса и исчезнувших
+    const allPool = [...(room.state.discard ?? []), ...(room.state.vanished ?? [])];
+    const pick = allPool.find((c) => c.id === picks[0]) ?? null;
     room.state = { ...room.state, ability: { ...ab, step: 'owner_view', revealTo: 'owner', revealed: pick ? [pick] : [], ghostPicks: picks } };
     return agg;
   }
@@ -449,6 +475,12 @@ export function abilityGhostPick(agg: RoomAgg, playerId: string, picks: string[]
   if (ab.kind === 'reveal_hand_point') {
     const pick = (ab.handRevealed ?? []).find((c) => c.id === picks[0]) ?? null;
     room.state = { ...room.state, ability: { ...ab, step: 'owner_view', revealTo: 'owner', revealed: pick ? [pick] : [], ghostPicks: picks } };
+    return agg;
+  }
+  if (ab.kind === 'point_player') {
+    // Адвокат: призрак выбрал игрока, который не является убийцей
+    const chosenPlayerId = picks[0] ?? null;
+    room.state = { ...room.state, ability: { ...ab, step: 'owner_view', revealTo: 'owner', ghostPicks: picks, ownerChoice: chosenPlayerId } };
     return agg;
   }
   if (ab.kind === 'trainer') {
@@ -527,6 +559,14 @@ export function abilityFinish(agg: RoomAgg, playerId: string): RoomAgg {
   if (ab.kind === 'trainer') {
     const sent = (ab.copies ?? []).map((s) => s.card);
     state = { ...state, discard: [...(state.discard ?? []), ...sent] };
+  }
+  if (ab.kind === 'point_player') {
+    // Адвокат: добавить событие с результатом выбора призрака
+    const chosenPlayerId = ab.ownerChoice;
+    const chosenPlayer = players.find((p) => p.id === chosenPlayerId);
+    if (chosenPlayer) {
+      state.events = addEvent(state, `${players.find((p) => p.id === ab.ownerId)?.nickname} (Адвокат) получил ответ от Призрака: игрок ${chosenPlayer.nickname} не является убийцей.`);
+    }
   }
   const owner = players.find((p) => p.id === playerId);
   const usedList = new Set(state.usedAbilities ?? []);
@@ -620,15 +660,27 @@ export function submitClue(agg: RoomAgg, playerId: string, card: ClueCard): Room
   const { room, players } = agg;
   const me = players.find((p) => p.id === playerId);
   if (!me) return agg;
+  // Проверка: если игрок уже отправил карту и это не вторая карта курьера — запрещаем
   const isCourierSecond = me.character === 'курьер' && me.submitted_clue && !me.submitted_clue.card2;
   if (me.submitted_clue && !isCourierSecond) return agg;
+  
   me.hand = me.hand.filter((c) => c.id !== card.id);
   me.submitted_clue = isCourierSecond && me.submitted_clue
     ? { ...me.submitted_clue, card2: card }
     : { playerId: me.id, nickname: me.nickname, card };
+  
   let radio = room.state.radioPlayerId ?? null;
   if (!radio && me.role !== 'ghost') radio = me.id;
-  const allIn = players.length > 0 && players.every((p) => p.submitted_clue);
+  
+  // Для курьера: проверяем, отправил ли он обе карты
+  const isCourierComplete = me.character === 'курьер' && me.submitted_clue?.card && me.submitted_clue?.card2;
+  const allIn = players.length > 0 && players.every((p) => {
+    if (p.character === 'курьер') {
+      return p.submitted_clue?.card && p.submitted_clue?.card2;
+    }
+    return !!p.submitted_clue;
+  });
+  
   const state = { ...room.state, radioPlayerId: radio, events: addEvent(room.state, `${me.nickname} отправил улику в почтовый ящик.`) };
   if (allIn) {
     room.phase = 'ghost_review';
