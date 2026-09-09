@@ -7,11 +7,12 @@ type Props = {
   highlighted?: boolean;
   marked?: 'correct' | 'wrong' | 'chosen' | null;
   onClick?: () => void;
+  onZoom?: () => void;
   disabled?: boolean;
   note?: string;
 };
 
-export default function ClueFace({ card, className = '', selected, highlighted, marked, onClick, disabled, note }: Props) {
+export default function ClueFace({ card, className = '', selected, highlighted, marked, onClick, onZoom, disabled, note }: Props) {
   const tone = clueTone(card.id);
   const cls = `clue-face ${selected ? 'is-selected' : ''} ${highlighted ? 'is-hint' : ''} ${marked ? `is-${marked}` : ''} ${className}`;
   const style = card.img
@@ -32,7 +33,7 @@ export default function ClueFace({ card, className = '', selected, highlighted, 
   );
   if (onClick) {
     return (
-      <button type="button" disabled={disabled} onClick={onClick} className={cls} style={style}>
+      <button type="button" disabled={disabled} onClick={(e) => { e.stopPropagation(); onClick(); if (onZoom) onZoom(); }} className={cls} style={style}>
         {inner}
       </button>
     );

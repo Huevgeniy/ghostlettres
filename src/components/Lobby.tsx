@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Check, Copy, HelpCircle, LogOut, Play, Settings2 } from 'lucide-react';
-import { minPlayers, roundsForPlayers, type Player, type Room, type RoomSettings } from '@/lib/game';
+import { minPlayers, type Player, type Room, type RoomSettings } from '@/lib/game';
 
 type Props = {
   room: Room;
@@ -24,8 +24,17 @@ export default function Lobby({ room, players, currentNickname, onStart, onLeave
 
   function patch(nextPatch: Partial<RoomSettings>) {
     const next = { ...settings, ...nextPatch };
-    if (nextPatch.playerCount !== undefined || nextPatch.secretCategory !== undefined) {
-      next.rounds = roundsForPlayers(next.playerCount, next.secretCategory);
+    // Only auto-calculate rounds if not manually set (customRounds flag)
+    if (!next.customRounds && (nextPatch.playerCount !== undefined || nextPatch.secretCategory !== undefined)) {
+      const baseRounds = nextPatch.secretCategory !== undefined ? nextPatch.secretCategory : settings.secretCategory;
+      const playerCount = nextPatch.playerCount !== undefined ? nextPatch.playerCount : settings.playerCount;
+      // Default calculation based on player count
+      let calculatedRounds = 3;
+      if (playerCount <= 5) calculatedRounds = 3;
+      else if (playerCount <= 7) calculatedRounds = 4;
+      else calculatedRounds = 5;
+      if (baseRounds) calculatedRounds += 1;
+      next.rounds = calculatedRounds;
     }
     onSettings(next);
   }
@@ -115,7 +124,13 @@ export default function Lobby({ room, players, currentNickname, onStart, onLeave
                 <button key={n} onClick={() => patch({ playerCount: n })} disabled={!isHost} className={`setting-choice ${settings.playerCount === n ? 'setting-active' : ''}`}>{n}</button>
               ))}
             </div>
-            <p className="mt-2 text-xs text-white/40">Раундов: {settings.rounds}{settings.secretCategory ? ' (тайна: +1)' : ''}</p>
+            <p className="eyebrow mt-5">Количество раундов</p>
+            <div className="mt-2 grid grid-cols-7 gap-2">
+              {[1, 2, 3, 4, 5, 6, 7].map((n) => (
+                <button key={n} onClick={() => { patch({ rounds: n, customRounds: true }); }} disabled={!isHost} className={`setting-choice ${settings.rounds === n ? 'setting-active' : ''}`}>{n}</button>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-white/40">Текущее значение: {settings.rounds}{settings.secretCategory ? ' (тайна: +1)' : ''}</p>
             <Toggle label="Убийца" checked={settings.hasKiller} disabled={!isHost} onChange={(v) => patch({ hasKiller: v })} hint="Выключить — кооператив: призрак сам выбирает истинные улики, нужно угадать все категории." />
             <Toggle label="Сброс карты роли" checked={settings.discardRole} disabled={!isHost || !settings.hasKiller || settings.playerCount > 6} onChange={(v) => patch({ discardRole: v })} hint="До 6 игроков: случайная карта роли убирается из стопки. Призрак втайне узнаёт, кого нет в игре." />
             <Toggle label="Тайна" checked={settings.secretCategory} disabled={!isHost} onChange={(v) => patch({ secretCategory: v })} hint="Четвёртая категория. Дело раскрыто, если угаданы 4 из 5 пунктов: все 4 улики или 3 улики и убийца. Партия длиннее на 1 раунд." />
