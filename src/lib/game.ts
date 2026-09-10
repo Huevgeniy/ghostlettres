@@ -112,6 +112,7 @@ export type TimerSettings = {
 export type RoomSettings = {
   rounds: number;
   maxRounds: number;
+  customRounds: boolean;
   playerCount: number;
   hasKiller: boolean;
   extraRoles: boolean;
