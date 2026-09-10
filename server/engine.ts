@@ -11,8 +11,7 @@ import {
   type Ballot,
   type TallyResult,
   type AbilityState,
-  type CharacterInfo,
-  type SubmittedClue,
+    type CharacterInfo,
   randomCode,
   shuffle,
   rolesForGame,
@@ -108,7 +107,7 @@ export function handleJoin(code: string, nickname: string, existingPlayerId?: st
   return { room: agg.room, player: p, agg };
 }
 
-export function handleRejoin(roomId: string, playerId: string): RoomAgg {
+export function handleRejoin(roomId: string, _playerId: string): RoomAgg {
   const agg = ROOMS.get(roomId);
   if (!agg) throw new Error('Комната не найдена');
   // Валидацию сессии выполняет клиент: если игрока нет в комнате,
@@ -266,7 +265,7 @@ function used(state: Room['state'], id: string): boolean {
 }
 
 export function activateAbility(agg: RoomAgg, playerId: string): RoomAgg {
-  const { room } = agg;
+  const { room, players } = agg;
   const me = getPlayer(agg, playerId);
   if (!me || me.role === 'ghost' || !me.character) return agg;
   const def = CHARACTER_ABILITIES[me.character];
@@ -341,9 +340,13 @@ export function activateAbility(agg: RoomAgg, playerId: string): RoomAgg {
   }
   if (def.kind === 'point_player') {
     // Адвокат: призрак выбирает игрока, который не является убийцей
-    const nonKillerPlayers = players.filter((p) => p.role !== 'killer').map((p) => p.id);
+    // Если убийца точно есть в игре — призрак не может указать на себя
+    const killerAbsent = room.state.discardedRole === 'killer';
+    const candidates = players.filter((p) => p.role !== 'killer' && (killerAbsent || p.role !== 'ghost'));
+    const nonKillerPlayers = candidates.map((p) => p.id);
     room.state = { ...room.state, ability: { ...base, step: 'ghost_action', revealTo: 'owner', done: nonKillerPlayers } };
     return agg;
+
   }
   if (def.kind === 'trainer') {
     room.state = { ...room.state, ability: base };
@@ -416,7 +419,7 @@ export function abilityOwnerDiscard(agg: RoomAgg, playerId: string, ids: string[
   return abilityFinish(agg, playerId);
 }
 
-export function abilitySendToGhost(agg: RoomAgg, playerId: string, ids: string[]): RoomAgg {
+export function abilitySendToGhost(agg: RoomAgg, playerId: string, _ids: string[]): RoomAgg {
   const { room } = agg;
   const ab = room.state.ability;
   const me = getPlayer(agg, playerId);
@@ -609,8 +612,8 @@ export function chooseTrueClues(agg: RoomAgg, choices: Record<string, string>, c
   }
   let state: Room['state'] = { ...room.state, trueChoices: choices };
   for (const p of players) {
-    // Призрак получает только 1 карту за раунд вместо 5
-    const handSize = p.role === 'ghost' ? 1 : 5;
+    // Призрак не получает карты в руку — он берёт карты из колоды в начале раунда
+    const handSize = p.role === 'ghost' ? 0 : 5;
     const filled = refillHand({ ...p, hand: [] }, state, handSize);
     state = filled.state;
     p.hand = filled.player.hand;
@@ -625,15 +628,28 @@ export function ghostOpening(agg: RoomAgg, card: ClueCard | null): RoomAgg {
   const { room, players } = agg;
   let state = { ...room.state };
   const ghost = players.find((p) => p.role === 'ghost');
-  if (card && ghost) {
-    const hand = ghost.hand.filter((c) => c.id !== card.id);
-    // Призрак получает только 1 карту за раунд вместо 5
-    const filled = refillHand({ ...ghost, hand }, state, 1);
-    state = filled.state;
-    ghost.hand = filled.player.hand;
-    state.hints = [...(state.hints ?? []), card];
-    state.events = addEvent(state, 'Призрак дал первую зацепку.');
+  // Новая механика призрака: в первом ходу ему даются 3 случайные карты из колоды,
+  // одну он может выложить как подсказку (или ни одной), остальные идут в сброс.
+
+  // Если карта ещё не роздана призраку — раздаём 3 случайные
+  if (ghost && !state.ghostOpeningCards) {
+    const drawn = takeCards(state, 3);
+    state = { ...drawn.state, ghostOpeningCards: drawn.cards };
+    if (ghost) ghost.hand = [];
   }
+  const openingCards = state.ghostOpeningCards ?? [];
+  if (card && ghost) {
+    // Выбранная карта идёт в подсказки, остальные в сброс
+    const rest = openingCards.filter((c) => c.id !== card.id);
+    state.hints = [...(state.hints ?? []), card];
+    state.discard = [...(state.discard ?? []), ...rest];
+    state.events = addEvent(state, 'Призрак дал первую зацепку.');
+  } else if (ghost) {
+    // Призрак пропустил — все 3 карты в сброс
+    state.discard = [...(state.discard ?? []), ...openingCards];
+    state.events = addEvent(state, 'Призрак пропустил первую зацепку.');
+  }
+  state = { ...state, ghostOpeningCards: undefined };
   const nxt = beginSubmit(agg, state);
   room.phase = nxt.phase;
   room.state = nxt.state;
@@ -672,8 +688,7 @@ export function submitClue(agg: RoomAgg, playerId: string, card: ClueCard): Room
   let radio = room.state.radioPlayerId ?? null;
   if (!radio && me.role !== 'ghost') radio = me.id;
   
-  // Для курьера: проверяем, отправил ли он обе карты
-  const isCourierComplete = me.character === 'курьер' && me.submitted_clue?.card && me.submitted_clue?.card2;
+    // Для курьера: проверяем, отправил ли он обе карты
   const allIn = players.length > 0 && players.every((p) => {
     if (p.character === 'курьер') {
       return p.submitted_clue?.card && p.submitted_clue?.card2;

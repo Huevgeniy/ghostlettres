@@ -101,22 +101,22 @@ button { cursor: pointer; }
 }
 /* Enhanced highlighting for true clues, current turn, votes */
 .clue-true-highlight {
-  border-color: rgba(34, 197, 94, 0.9) !important;
-  box-shadow: 0 0 30px 8px rgba(34, 197, 94, 0.6), inset 0 0 40px rgba(34, 197, 94, 0.2) !important;
-  filter: brightness(1.25);
-  transform: scale(1.1);
+  border-color: rgba(34, 197, 94, 1) !important;
+  box-shadow: 0 0 50px 15px rgba(34, 197, 94, 0.7), inset 0 0 60px rgba(34, 197, 94, 0.3) !important;
+  filter: brightness(1.4);
+  transform: scale(1.15);
   z-index: 10;
 }
 .clue-vote-highlight {
-  border-color: rgba(59, 130, 246, 0.9) !important;
-  box-shadow: 0 0 25px 6px rgba(59, 130, 246, 0.6), inset 0 0 35px rgba(59, 130, 246, 0.15) !important;
-  filter: brightness(1.2);
-  transform: scale(1.08);
+  border-color: rgba(59, 130, 246, 1) !important;
+  box-shadow: 0 0 40px 12px rgba(59, 130, 246, 0.7), inset 0 0 50px rgba(59, 130, 246, 0.2) !important;
+  filter: brightness(1.3);
+  transform: scale(1.12);
 }
 .player-turn-glow {
-  box-shadow: 0 0 35px 10px rgba(34, 197, 94, 0.5), inset 0 0 30px rgba(34, 197, 94, 0.15);
-  border-color: rgba(34, 197, 94, 0.9) !important;
-  transform: scale(1.05);
+  box-shadow: 0 0 50px 15px rgba(34, 197, 94, 0.6), inset 0 0 40px rgba(34, 197, 94, 0.2);
+  border-color: rgba(34, 197, 94, 1) !important;
+  transform: scale(1.1);
 }
 .clue-empty { aspect-ratio: 1/1; border-radius: .5rem; border: 1px dashed rgba(143,198,204,.12); background: rgba(7,24,33,.3); }
 .clue-label { font-size: .65rem; font-weight: 600; text-align: center; padding: .25rem; line-height: 1.1; color: rgba(237,243,246,.85); }
@@ -156,25 +156,28 @@ button { cursor: pointer; }
 .clue-zoom { width: min(20rem, 80vw); min-height: 20rem; font-size: 1.1rem; }
 .clue-zoom .clue-face-label { font-size: 1.8rem; }
 .clue-zoom .clue-face-note { font-size: 1rem; padding: .6rem; }
-.is-selected { border-color: #c9ad67; box-shadow: 0 0 0 3px rgba(201,173,103,.6); }
+.is-selected { 
+  border-color: #c9ad67; 
+  box-shadow: 0 0 0 4px rgba(201,173,103,.8), 0 0 30px 10px rgba(201,173,103,.4); 
+}
 .is-hint { 
-  border-color: rgba(159,227,227,1); 
-  box-shadow: 0 0 35px 10px rgba(159,227,227,.6), inset 0 0 40px rgba(159,227,227,.3);
-  transform: scale(1.15);
-  filter: brightness(1.3);
+  border-color: rgba(34,197,94,1); 
+  box-shadow: 0 0 50px 15px rgba(34,197,94,.5), inset 0 0 60px rgba(34,197,94,.3);
+  transform: scale(1.2);
+  filter: brightness(1.4);
   z-index: 15;
 }
 .is-correct { 
-  box-shadow: 0 0 0 3px #3dd68c, 0 0 20px 5px rgba(61,214,140,.4);
-  transform: scale(1.05);
+  box-shadow: 0 0 0 4px #3dd68c, 0 0 30px 10px rgba(61,214,140,.5);
+  transform: scale(1.1);
 }
 .is-wrong { 
-  box-shadow: 0 0 0 3px #e25b5b, 0 0 20px 5px rgba(226,91,91,.4);
-  transform: scale(1.05);
+  box-shadow: 0 0 0 4px #e25b5b, 0 0 30px 10px rgba(226,91,91,.5);
+  transform: scale(1.1);
 }
 .is-chosen { 
-  box-shadow: 0 0 0 3px #d4b873, 0 0 20px 5px rgba(212,184,115,.4);
-  transform: scale(1.05);
+  box-shadow: 0 0 0 4px #d4b873, 0 0 30px 10px rgba(212,184,115,.5);
+  transform: scale(1.1);
 }
 .clue-mark {
   position: absolute; top: 6px; right: 6px; width: 1.2rem; height: 1.2rem; border-radius: 999px;
@@ -222,10 +225,10 @@ button { cursor: pointer; }
 .seat-char img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .seat-role, .seat-radio { font-size: .52rem; color: rgba(237,243,246,.45); }
 .seat.is-speaking { background: rgba(201,173,103,.16); }
-.seat.is-ok { box-shadow: 0 0 0 2px #3dd68c; }
-.seat.is-bad { box-shadow: 0 0 0 2px #e25b5b; }
-.seat.is-chosen { box-shadow: 0 0 0 2px #d4b873; }
-.seat.is-true { box-shadow: 0 0 0 2px #3dd68c; }
+.seat.is-ok { box-shadow: 0 0 0 3px #3dd68c, 0 0 20px 5px rgba(61,214,140,.4); }
+.seat.is-bad { box-shadow: 0 0 0 3px #e25b5b, 0 0 20px 5px rgba(226,91,91,.4); }
+.seat.is-chosen { box-shadow: 0 0 0 3px #d4b873, 0 0 20px 5px rgba(212,184,115,.4); }
+.seat.is-true { box-shadow: 0 0 0 3px #3dd68c, 0 0 20px 5px rgba(61,214,140,.4); }
 
 .zoom-layer {
   position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,.82);
@@ -262,4 +265,3 @@ button { cursor: pointer; }
   line-height: 1.35;
   text-align: center;
 }
-

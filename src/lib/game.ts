@@ -324,6 +324,7 @@ export type RoomGameState = {
   ability?: AbilityState | null;
   usedAbilities?: string[]; // characterIds, способности в один раз за партию
   events?: GameEvent[];
+  ghostOpeningCards?: ClueCard[]; // 3 карты для первой зацепки призрака
 };
 
 export type Room = {
